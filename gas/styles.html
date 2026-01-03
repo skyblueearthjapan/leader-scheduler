@@ -217,98 +217,119 @@
     background: #fff;
     padding: 0;
     transition: background 0.1s;
+    overflow: visible !important;
   }
   .eventsCell:hover{ background: #f9fbff; }
   .eventsCell.not-editable{ cursor: default; background: #fafafa; }
 
-  /* 日付セル内：最大2列（2本） */
+  /* ========================================
+     予定表示：セル全面テキスト方式（カード禁止）
+     !important で旧CSS強制上書き
+     ======================================== */
+
+  /* 予定欄：2列固定、セル内スクロール */
   .dayEvents{
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 4px;
-    height: 100%;
-    padding: 4px;
-    overflow-y: auto;
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 10px !important;
+    height: 100% !important;
+    width: 100% !important;
+    padding: 6px !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
   }
 
-  /* 1列 */
+  /* 列 */
   .eventCol{
-    min-width: 0;
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
+    min-width: 0 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    gap: 8px !important;
   }
 
-  /* 1予定ブロック（縦書き・縦積み構造） */
-  .eventBlock{
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    background: #fff;
-    border: 1px solid var(--line);
-    border-radius: 8px;
-    padding: 6px 4px 8px;
-    position: relative;
-    cursor: pointer;
-    flex: 1;
-    min-height: 80px;
-    transition: background 0.1s, border-color 0.1s;
+  /* 予定1本：セル直書き風（枠は最小） */
+  .eventText{
+    writing-mode: vertical-rl !important;
+    text-orientation: mixed !important;
+    transform: none !important;
+    width: 100% !important;
+    min-width: 0 !important;
+    height: auto !important;
+    border: 1px solid rgba(0,0,0,.08) !important;
+    border-radius: 10px !important;
+    background: #fff !important;
+    padding: 10px 6px !important;
+    overflow: visible !important;
+    cursor: pointer !important;
+    flex: 1 !important;
+    min-height: 100px !important;
+    position: relative !important;
   }
-  .eventBlock:hover{
-    background: #f9fbff;
-    border-color: #dbeafe;
-  }
-
-  /* 種別色は上の細線のみ */
-  .eventBlock::before{
-    content: "";
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 4px;
-    background: var(--typeColor, var(--accent2));
-    border-radius: 8px 8px 0 0;
+  .eventText:hover{
+    background: #f9fbff !important;
+    border-color: #dbeafe !important;
   }
 
-  /* 縦積み要素：時間 */
+  /* 種別色：上の細線だけ（左右帯は禁止） */
+  .eventText::before{
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    height: 4px !important;
+    background: var(--typeColor, #60a5fa) !important;
+    border-radius: 10px 10px 0 0 !important;
+  }
+
+  /* テキスト：時間 */
   .vTime{
-    font-size: 10px;
-    font-weight: 900;
-    color: var(--muted);
-    margin-bottom: 2px;
+    font-size: 11px !important;
+    font-weight: 900 !important;
+    color: var(--muted) !important;
+    margin-bottom: 4px !important;
+    display: block !important;
   }
 
-  /* 縦積み要素：件名（最重要・大きく） */
+  /* テキスト：件名（主役・大きく太字） */
   .vTitle{
-    font-size: 14px;
-    font-weight: 950;
-    line-height: 1.15;
-    color: var(--text);
-    margin-left: 4px;
+    font-size: 15px !important;
+    font-weight: 950 !important;
+    line-height: 1.15 !important;
+    color: var(--text) !important;
+    margin-left: 8px !important;
+    white-space: pre-wrap !important;
+    display: block !important;
   }
 
-  /* 縦積み要素：場所 */
+  /* テキスト：場所 */
   .vLoc{
-    font-size: 11px;
-    font-weight: 800;
-    color: #475569;
-    margin-left: 4px;
+    font-size: 12px !important;
+    font-weight: 800 !important;
+    color: #475569 !important;
+    margin-left: 8px !important;
+    white-space: pre-wrap !important;
+    display: block !important;
   }
 
-  /* 縦積み要素：メモ */
+  /* テキスト：メモ */
   .vMemo{
-    font-size: 11px;
-    font-weight: 700;
-    color: #64748b;
-    white-space: pre-wrap;
-    margin-left: 4px;
+    font-size: 12px !important;
+    font-weight: 700 !important;
+    color: #64748b !important;
+    margin-left: 8px !important;
+    white-space: pre-wrap !important;
+    display: block !important;
   }
 
   /* 種別ごとの色 */
-  .type-MEET, .type-MEETING{ --typeColor: #7c3aed; }
-  .type-VIP, .type-VISIT{ --typeColor: #f59e0b; }
-  .type-OUT, .type-TRAVEL{ --typeColor: #10b981; }
-  .type-DINNER{ --typeColor: #ec4899; }
-  .type-HOLIDAY{ --typeColor: #ef4444; }
-  .type-OTHER{ --typeColor: #64748b; }
+  .type-MEET, .type-MEETING{ --typeColor: #7c3aed !important; }
+  .type-VIP, .type-VISIT{ --typeColor: #f59e0b !important; }
+  .type-OUT, .type-TRAVEL{ --typeColor: #10b981 !important; }
+  .type-DINNER{ --typeColor: #ec4899 !important; }
+  .type-HOLIDAY{ --typeColor: #ef4444 !important; }
+  .type-OTHER{ --typeColor: #64748b !important; }
 
   /* 備考セル（3行目）- 縦書き表示 */
   .notesBody{

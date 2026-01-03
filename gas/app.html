@@ -104,32 +104,44 @@ function typeClass_(type) {
   return map[type] || '';
 }
 
-/** 1予定ブロックを生成（縦書き・縦積み構造） */
-function createEventBlock_(e) {
+/** 1予定テキストを生成（セル直書き・縦書き・縦積み） */
+function createEventText_(e) {
   const block = document.createElement('div');
-  block.className = `eventBlock ${typeClass_(e.type)}`;
+  block.className = `eventText ${typeClass_(e.type)}`;
 
-  // 時間
-  const time = e.start_time
+  // 時間（必ずDOM追加、空ならdisplay:none）
+  const timeStr = e.start_time
     ? (e.end_time ? `${e.start_time}–${e.end_time}` : e.start_time)
     : '';
+  const vTime = document.createElement('div');
+  vTime.className = 'vTime';
+  vTime.textContent = timeStr;
+  if (!timeStr) vTime.style.display = 'none';
 
-  // 件名
-  const title = (e.title || '').trim() || '(無題)';
+  // 件名（必ずDOM追加、主役）
+  const vTitle = document.createElement('div');
+  vTitle.className = 'vTitle';
+  vTitle.textContent = (e.title || '').trim() || '(無題)';
 
-  // 場所
-  const loc = (e.location || '').trim();
+  // 場所（必ずDOM追加、空ならdisplay:none）
+  const locStr = (e.location || '').trim();
+  const vLoc = document.createElement('div');
+  vLoc.className = 'vLoc';
+  vLoc.textContent = locStr ? `@${locStr}` : '';
+  if (!locStr) vLoc.style.display = 'none';
 
-  // メモ
-  const memo = (e.memo || '').trim();
+  // メモ（必ずDOM追加、空ならdisplay:none）
+  const memoStr = (e.memo || '').trim();
+  const vMemo = document.createElement('div');
+  vMemo.className = 'vMemo';
+  vMemo.textContent = memoStr;
+  if (!memoStr) vMemo.style.display = 'none';
 
-  // HTML生成（縦積み：時間→件名→場所→メモ）
-  block.innerHTML = `
-    ${time ? `<div class="vTime">${esc(time)}</div>` : ''}
-    <div class="vTitle">${esc(title)}</div>
-    ${loc ? `<div class="vLoc">@${esc(loc)}</div>` : ''}
-    ${memo ? `<div class="vMemo">${esc(memo)}</div>` : ''}
-  `;
+  // 順番通りに追加（時間→件名→場所→メモ）
+  block.appendChild(vTime);
+  block.appendChild(vTitle);
+  block.appendChild(vLoc);
+  block.appendChild(vMemo);
 
   // クリック → 編集
   block.addEventListener('click', (ev) => {
@@ -312,7 +324,7 @@ function renderMonthGrid(container, monthStart) {
 
       // セルクリック → 新規作成
       cell.addEventListener('click', (ev) => {
-        if (ev.target.closest('.eventBlock')) return;
+        if (ev.target.closest('.eventText')) return;
         if (canEdit) {
           openCreateModal(iso);
         }
@@ -333,7 +345,7 @@ function renderMonthGrid(container, monthStart) {
         col2.className = 'eventCol';
 
         dayEvents.forEach((e, i) => {
-          const block = createEventBlock_(e);
+          const block = createEventText_(e);
           if (i % 2 === 0) {
             col1.appendChild(block);
           } else {
