@@ -349,31 +349,18 @@ function renderMonthGrid(container, monthStart) {
         }
       });
 
-      // その日のイベントを表示（2列固定＋縦積み構造）
+      // その日のイベントを表示（セル直書き・横並び）
       const dayEvents = STATE.events.filter(e => e.date === iso);
       if (dayEvents.length > 0) {
         const dayEventsContainer = document.createElement('div');
         dayEventsContainer.className = 'dayEvents';
 
-        // 左列（1件目、3件目、5件目...）
-        const col1 = document.createElement('div');
-        col1.className = 'eventCol';
-
-        // 右列（2件目、4件目、6件目...）
-        const col2 = document.createElement('div');
-        col2.className = 'eventCol';
-
-        dayEvents.forEach((e, i) => {
+        // 予定を直接追加（横並びで左から右へ）
+        dayEvents.forEach((e) => {
           const block = createEventText_(e);
-          if (i % 2 === 0) {
-            col1.appendChild(block);
-          } else {
-            col2.appendChild(block);
-          }
+          dayEventsContainer.appendChild(block);
         });
 
-        dayEventsContainer.appendChild(col1);
-        dayEventsContainer.appendChild(col2);
         cell.appendChild(dayEventsContainer);
       }
     }
