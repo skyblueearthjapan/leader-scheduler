@@ -88,6 +88,30 @@ function statusLabel(code) {
   return s ? s.label : code;
 }
 
+/** 種別を極小ラベル用に短縮（4文字以内） */
+function shortTypeLabel_(code) {
+  // 定義済みマッピング（よく使うコード）
+  const map = {
+    MEET: '会議',
+    MEETING: '会議',
+    OUT: '外出',
+    VIP: '重要',
+    VISIT: '来客',
+    DINNER: '会食',
+    TRAVEL: '出張',
+    HOLIDAY: '休',
+    OTHER: '他'
+  };
+  if (map[code]) return map[code];
+
+  // マスタから取得して4文字以内なら使用
+  const t = (STATE.masters?.types || []).find(x => x.code === code);
+  if (t && t.label && t.label.length <= 4) {
+    return t.label;
+  }
+  return '';
+}
+
 // =============================================================================
 // GAS通信
 // =============================================================================
@@ -287,12 +311,31 @@ function buildEventsRow(monthStart, daysInMonth) {
       for (const e of dayEvents) {
         const item = document.createElement('div');
         item.className = 'eventItem';
-        item.style.borderLeftColor = typeColor(e.type);
 
-        const timeStr = e.start_time ? e.start_time + ' ' : '';
+        // 色は上のバーで表現（左帯なし）
+        item.style.setProperty('--typeColor', typeColor(e.type));
+
+        // 表示文字：件名とメモ（＋場所）を優先
+        const time = e.start_time ? e.start_time : '';
+        const title = (e.title || '').trim();
+        const loc = (e.location || '').trim();
+        const memo = (e.memo || '').trim();
+
+        // 2行目は「メモ優先、無ければ場所」
+        const second = memo ? memo : (loc ? `@${loc}` : '');
+
+        // 種別ラベル（極小チップ、4文字以内のみ表示）
+        const typeLabelJa = shortTypeLabel_(e.type);
+
         item.innerHTML = `
-          <div class="eventMeta">${esc(timeStr)}[${esc(typeLabel(e.type))}]</div>
-          <div class="eventTitle">${esc(e.title || '')}</div>
+          <div class="eventTop">
+            <div class="eventTitle">${esc(title || '(無題)')}</div>
+            <div class="eventRight">
+              ${typeLabelJa ? `<span class="typeChip">${esc(typeLabelJa)}</span>` : ''}
+              ${time ? `<div class="eventTime">${esc(time)}</div>` : ''}
+            </div>
+          </div>
+          ${second ? `<div class="eventSub">${esc(second)}</div>` : ''}
         `;
 
         // イベントクリック → 編集
