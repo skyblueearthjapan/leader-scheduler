@@ -56,6 +56,19 @@
           <label for="f_date">日付 <span class="required">*</span></label>
           <input id="f_date" type="date" required />
         </div>
+
+        <!-- 日付設定ボタン（出勤日/休日） -->
+        <div class="daySettingButtons" id="daySettingButtons">
+          <button type="button" class="daySettingBtn daySettingBtn--workday" id="btnWorkday">
+            <span class="daySettingBtn__icon">🏭</span>
+            <span>出勤日に設定</span>
+          </button>
+          <button type="button" class="daySettingBtn daySettingBtn--holiday" id="btnHoliday">
+            <span class="daySettingBtn__icon">🎌</span>
+            <span>休日に設定</span>
+          </button>
+        </div>
+
         <div class="formRow two">
           <div>
             <label for="f_start">開始時刻</label>

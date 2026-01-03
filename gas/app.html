@@ -13,7 +13,8 @@ const STATE = {
   range: null,
   events: [],
   eventById: new Map(),
-  notes: {}  // 月ごとの備考 { 'YYYY-MM': 'text' }
+  notes: {},  // 月ごとの備考 { 'YYYY-MM': 'text' }
+  daySettings: {}  // 日付設定 { 'YYYY-MM-DD': 'WORKDAY' | 'HOLIDAY' }
 };
 
 // モーダル状態
@@ -342,6 +343,7 @@ async function boot() {
     STATE.events = res.events || [];
     STATE.eventById = new Map(STATE.events.map(e => [e.event_id, e]));
     STATE.notes = res.notes || {};
+    STATE.daySettings = res.daySettings || {};
 
     renderHeader();
     renderBoards();
@@ -422,13 +424,27 @@ function renderMonthGrid(container, monthStart) {
       dayHead.textContent = String(day);
       wdayHead.textContent = wdayJa(dt);
 
-      // 週末クラス
+      // 日付設定を取得
+      const daySetting = STATE.daySettings[iso];
+
+      // 週末クラス（日付設定で上書きされる可能性あり）
       if (dayOfWeek === 0) {
         dayHead.classList.add('isWeekend', 'isSunday');
         wdayHead.classList.add('isWeekend', 'isSunday');
       } else if (dayOfWeek === 6) {
         dayHead.classList.add('isWeekend', 'isSaturday');
         wdayHead.classList.add('isWeekend', 'isSaturday');
+      }
+
+      // 日付設定による上書き
+      if (daySetting === 'WORKDAY') {
+        // 出勤日設定: 週末の黄色を消す
+        dayHead.classList.add('isWorkday');
+        wdayHead.classList.add('isWorkday');
+      } else if (daySetting === 'HOLIDAY') {
+        // 休日設定: ピンク色にする
+        dayHead.classList.add('isHoliday');
+        wdayHead.classList.add('isHoliday');
       }
 
       // 今日
@@ -471,12 +487,22 @@ function renderMonthGrid(container, monthStart) {
       const iso = ymd(dt);
       const dayOfWeek = dt.getDay();
 
+      // 日付設定を取得
+      const daySetting = STATE.daySettings[iso];
+
       // 週末・今日のスタイル
       if (dayOfWeek === 0 || dayOfWeek === 6) {
         cell.classList.add('isWeekend');
       }
       if (isToday(dt)) {
         cell.classList.add('isToday');
+      }
+
+      // 日付設定による上書き
+      if (daySetting === 'WORKDAY') {
+        cell.classList.add('isWorkday');
+      } else if (daySetting === 'HOLIDAY') {
+        cell.classList.add('isHoliday');
       }
 
       // 編集可能かどうか
@@ -681,6 +707,7 @@ function openCreateModal(dateISO) {
   });
 
   applyEditability(dateISO);
+  updateDaySettingButtons(dateISO);
   openModal(true);
 }
 
@@ -696,6 +723,7 @@ function openEditModal(id) {
 
   fillForm(e);
   applyEditability(e.date);
+  updateDaySettingButtons(e.date);
   openModal(true);
 }
 
@@ -881,6 +909,96 @@ function onDelete() {
 }
 
 // =============================================================================
+// 日付設定（出勤日/休日）
+// =============================================================================
+
+function updateDaySettingButtons(dateISO) {
+  const daySetting = STATE.daySettings[dateISO] || null;
+  const btnWorkday = el('btnWorkday');
+  const btnHoliday = el('btnHoliday');
+
+  // アクティブ状態をリセット
+  btnWorkday.classList.remove('active');
+  btnHoliday.classList.remove('active');
+
+  // 現在の設定に応じてアクティブ状態を設定
+  if (daySetting === 'WORKDAY') {
+    btnWorkday.classList.add('active');
+  } else if (daySetting === 'HOLIDAY') {
+    btnHoliday.classList.add('active');
+  }
+
+  // 編集可否に応じて無効化
+  const canRole = STATE.user.role === 'editor' || STATE.user.role === 'admin';
+  const canDate = isDateEditable(dateISO);
+  const canEdit = canRole && canDate;
+
+  btnWorkday.disabled = !canEdit;
+  btnHoliday.disabled = !canEdit;
+}
+
+async function toggleDaySetting(type) {
+  const dateISO = el('f_date').value;
+  if (!dateISO) return;
+
+  const currentSetting = STATE.daySettings[dateISO];
+
+  // 同じボタンを押したら設定解除、違うボタンなら切り替え
+  let newSetting = null;
+  if (currentSetting === type) {
+    newSetting = null; // 解除
+  } else {
+    newSetting = type; // 設定
+  }
+
+  // 楽観的UI更新
+  if (newSetting) {
+    STATE.daySettings[dateISO] = newSetting;
+  } else {
+    delete STATE.daySettings[dateISO];
+  }
+  updateDaySettingButtons(dateISO);
+  renderBoards();
+
+  // バックグラウンドでサーバーに保存
+  enqueueSave({
+    execute: async () => {
+      const res = await gas('setDaySetting', dateISO, newSetting, '');
+      if (res && res.ok) {
+        console.log('Day setting saved:', dateISO, newSetting);
+        showToast(
+          newSetting === 'WORKDAY' ? '出勤日に設定しました' :
+          newSetting === 'HOLIDAY' ? '休日に設定しました' :
+          '設定を解除しました',
+          'success', 2000
+        );
+      } else {
+        // 失敗したら元に戻す
+        if (currentSetting) {
+          STATE.daySettings[dateISO] = currentSetting;
+        } else {
+          delete STATE.daySettings[dateISO];
+        }
+        updateDaySettingButtons(dateISO);
+        renderBoards();
+        showToast('設定の保存に失敗しました', 'error', 4000);
+      }
+    },
+    onError: (e) => {
+      // 失敗したら元に戻す
+      if (currentSetting) {
+        STATE.daySettings[dateISO] = currentSetting;
+      } else {
+        delete STATE.daySettings[dateISO];
+      }
+      updateDaySettingButtons(dateISO);
+      renderBoards();
+      showToast('設定エラー: ' + e.message, 'error', 4000);
+    }
+  });
+}
+
+// =============================================================================
 // 過去一覧（ドロワー）
 // =============================================================================
 
@@ -955,8 +1073,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // 日付変更時に編集可否を再評価
   el('f_date').addEventListener('change', () => {
-    applyEditability(el('f_date').value);
+    const dateISO = el('f_date').value;
+    applyEditability(dateISO);
+    updateDaySettingButtons(dateISO);
   });
+
+  // 日付設定ボタン
+  el('btnWorkday').addEventListener('click', () => toggleDaySetting('WORKDAY'));
+  el('btnHoliday').addEventListener('click', () => toggleDaySetting('HOLIDAY'));
 
   // ドロワー
   el('drawerClose').addEventListener('click', () => openDrawer(false));

@@ -14,7 +14,8 @@
     --accent3:#93c5fd;    /* pale blue */
 
     --today:#dbeafe;      /* very light blue */
-    --weekend:#fff7ed;    /* subtle warm tint */
+    --weekend:#fff7ed;    /* subtle warm tint - 土日 */
+    --holiday:#fce7f3;    /* light pink - 祝日・休日設定 */
     --notes:#f8fafc;
     --danger:#ef4444;
   }
@@ -356,10 +357,19 @@
     cursor: not-allowed;
   }
 
-  /* Weekend / Today */
+  /* Weekend / Today / Holiday / Workday */
   .isWeekend{background:var(--weekend);}
   .isSunday .dayHead, .isSunday .wdayHead, .isSunday.dayHead, .isSunday.wdayHead{color:#dc2626;}
   .isSaturday .dayHead, .isSaturday .wdayHead, .isSaturday.dayHead, .isSaturday.wdayHead{color:#2563eb;}
+
+  /* 休日設定（祝日など）: 薄ピンク */
+  .isHoliday{background:var(--holiday) !important;}
+  .isHoliday.dayHead, .isHoliday.wdayHead{color:#be185d !important;}
+
+  /* 出勤日設定（土曜出勤など）: 週末色を解除 */
+  .isWorkday{background:#ffffff !important;}
+  .isWorkday.dayHead, .isWorkday.wdayHead{color:var(--text) !important;}
+
   .isToday{
     outline:3px solid var(--accent2);
     outline-offset:-3px;
@@ -409,6 +419,46 @@
   .formRow.two{display:grid; grid-template-columns:1fr 1fr; gap:12px;}
   .editHint{font-size:12px; color:var(--muted); padding:8px 0;}
   .editHint.warning{color:#f59e0b;}
+
+  /* 日付設定ボタン（出勤日/休日） */
+  .daySettingButtons{
+    display:flex;
+    gap:8px;
+    padding:12px 0;
+    border-bottom:1px solid var(--line);
+    margin-bottom:12px;
+  }
+  .daySettingBtn{
+    flex:1;
+    padding:10px 12px;
+    border:2px solid var(--line);
+    border-radius:10px;
+    background:#ffffff;
+    font-size:13px;
+    font-weight:600;
+    cursor:pointer;
+    transition:all 0.15s;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    gap:6px;
+  }
+  .daySettingBtn:hover{border-color:#cbd5e1;}
+  .daySettingBtn:disabled{opacity:0.5;cursor:not-allowed;}
+  .daySettingBtn.active{
+    border-width:2px;
+  }
+  .daySettingBtn--workday.active{
+    border-color:#3b82f6;
+    background:#eff6ff;
+    color:#1e40af;
+  }
+  .daySettingBtn--holiday.active{
+    border-color:#ec4899;
+    background:#fdf2f8;
+    color:#9d174d;
+  }
+  .daySettingBtn__icon{font-size:16px;}
 
   .modal__footer{
     display:flex; align-items:center; gap:8px;

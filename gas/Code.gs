@@ -12,6 +12,7 @@
 const SHEET_SETTINGS = '01_Settings';
 const SHEET_USERS    = '02_Users';
 const SHEET_EVENTS   = '03_Events';
+const SHEET_DAY_SETTINGS = '04_DaySettings';  // 出勤日・休日設定
 const SHEET_NOTES    = '05_Notes';
 
 const SETTINGS_BASE_MONTH_CELL = 'B5';      // YYYY-MM
@@ -67,6 +68,9 @@ function getBootstrap() {
     const toMonth = nextMonthKeyServer_(settings.baseMonth);
     const notes = getNotesMap_(fromMonth, toMonth);
 
+    // 当月〜翌月の日付設定（出勤日・休日）を取得
+    const daySettings = getDaySettingsMap_(range.fromISO, range.toISO);
+
     return {
       ok: true,
       user,
@@ -74,7 +78,8 @@ function getBootstrap() {
       masters,
       range,
       events,
-      notes
+      notes,
+      daySettings
     };
   } catch (e) {
     console.error('getBootstrap error:', e);
@@ -938,6 +943,142 @@ function upsertNote(monthKey, text) {
     return { ok: true };
   } catch (e) {
     console.error('upsertNote error:', e);
+    return { ok: false, error: e.message || 'SAVE_FAILED' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+// =============================================================================
+// DaySettings（出勤日・休日設定）
+// =============================================================================
+
+/**
+ * 04_DaySettingsシートを確保（なければ作成）
+ */
+function ensureDaySettingsSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(SHEET_DAY_SETTINGS);
+
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_DAY_SETTINGS);
+    sh.getRange(1, 1, 1, 5).setValues([['日付', '種別', 'メモ', '更新日時', '更新者']]);
+    sh.setFrozenRows(1);
+  }
+
+  return sh;
+}
+
+/**
+ * 指定期間の日付設定を取得
+ * @returns {Object} { 'YYYY-MM-DD': { type: 'WORKDAY'|'HOLIDAY', memo: '' } }
+ */
+function getDaySettingsMap_(fromISO, toISO) {
+  const sh = ensureDaySettingsSheet_();
+  const lastRow = sh.getLastRow();
+  const map = {};
+
+  if (lastRow < 2) return map;
+
+  const values = sh.getRange(2, 1, lastRow - 1, 3).getValues(); // A:date, B:type, C:memo
+
+  for (const [dateVal, type, memo] of values) {
+    if (!dateVal) continue;
+    let key;
+    if (dateVal instanceof Date) {
+      key = formatISODate_(dateVal);
+    } else {
+      key = String(dateVal).trim();
+    }
+    if (key >= fromISO && key <= toISO) {
+      map[key] = {
+        type: String(type || '').trim(),
+        memo: String(memo || '').trim()
+      };
+    }
+  }
+
+  return map;
+}
+
+/**
+ * 日付設定を追加/更新/削除
+ * @param {string} dateISO - YYYY-MM-DD
+ * @param {string|null} type - 'WORKDAY'（出勤日）, 'HOLIDAY'（休日）, null（解除）
+ * @param {string} memo - メモ（任意）
+ */
+function setDaySetting(dateISO, type, memo) {
+  const lock = LockService.getDocumentLock();
+  try {
+    lock.waitLock(10000);
+  } catch (e) {
+    return { ok: false, error: 'LOCK_TIMEOUT' };
+  }
+
+  try {
+    const user = getUserContext_();
+    const settings = getSettings_();
+
+    // 権限チェック
+    if (!(user.role === 'editor' || user.role === 'admin')) {
+      throw new Error('FORBIDDEN');
+    }
+
+    // 編集可能期間チェック
+    assertCanEdit_(user, settings, dateISO);
+
+    const sh = ensureDaySettingsSheet_();
+    const lastRow = sh.getLastRow();
+    const tz = settings.tz;
+    const now = new Date();
+
+    // 既存行を探索
+    let existingRow = null;
+    if (lastRow >= 2) {
+      const dates = sh.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < dates.length; i++) {
+        let key;
+        if (dates[i][0] instanceof Date) {
+          key = formatISODate_(dates[i][0]);
+        } else {
+          key = String(dates[i][0]).trim();
+        }
+        if (key === dateISO) {
+          existingRow = 2 + i;
+          break;
+        }
+      }
+    }
+
+    if (type === null || type === '') {
+      // 解除: 行を削除
+      if (existingRow) {
+        sh.deleteRow(existingRow);
+      }
+      return { ok: true, action: 'removed' };
+    }
+
+    if (existingRow) {
+      // 更新
+      sh.getRange(existingRow, 2).setValue(type);
+      sh.getRange(existingRow, 3).setValue(memo || '');
+      sh.getRange(existingRow, 4).setValue(Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'));
+      sh.getRange(existingRow, 5).setValue(user.email);
+      return { ok: true, action: 'updated' };
+    }
+
+    // 新規追加
+    sh.appendRow([
+      dateISO,
+      type,
+      memo || '',
+      Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
+      user.email
+    ]);
+
+    return { ok: true, action: 'created' };
+  } catch (e) {
+    console.error('setDaySetting error:', e);
     return { ok: false, error: e.message || 'SAVE_FAILED' };
   } finally {
     lock.releaseLock();
