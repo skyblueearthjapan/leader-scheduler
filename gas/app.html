@@ -12,7 +12,8 @@ const STATE = {
   masters: null,
   range: null,
   events: [],
-  eventById: new Map()
+  eventById: new Map(),
+  notes: {}  // 月ごとの備考 { 'YYYY-MM': 'text' }
 };
 
 // モーダル状態
@@ -124,6 +125,7 @@ async function boot() {
     STATE.range = res.range;
     STATE.events = res.events || [];
     STATE.eventById = new Map(STATE.events.map(e => [e.event_id, e]));
+    STATE.notes = res.notes || {};
 
     renderHeader();
     renderBoards();
@@ -306,9 +308,36 @@ function buildEventsRow(monthStart, daysInMonth) {
     row.appendChild(cell);
   }
 
-  // 備考セル
+  // 備考セル（月単位のメモ）
   const notes = document.createElement('div');
   notes.className = 'cell notesBody';
+
+  const mk = monthKey(monthStart);
+  const canEditRole = STATE.user.role === 'editor' || STATE.user.role === 'admin';
+  const canEditMonth = isMonthEditable(mk);
+  const canEdit = canEditRole && canEditMonth;
+
+  const ta = document.createElement('textarea');
+  ta.className = 'notesText';
+  ta.placeholder = '備考\n・\n・';
+  ta.value = STATE.notes[mk] || '';
+  ta.disabled = !canEdit;
+
+  let debounceTimer = null;
+  ta.addEventListener('input', () => {
+    STATE.notes[mk] = ta.value;
+
+    if (debounceTimer) clearTimeout(debounceTimer);
+    debounceTimer = setTimeout(async () => {
+      try {
+        await gas('upsertNote', mk, ta.value);
+      } catch (e) {
+        console.error('Note save error:', e);
+      }
+    }, 600);
+  });
+
+  notes.appendChild(ta);
   row.appendChild(notes);
 
   return row;
@@ -318,6 +347,27 @@ function buildEventsRow(monthStart, daysInMonth) {
 function isDateEditable(isoDate) {
   if (!STATE.range) return false;
   return isoDate >= STATE.range.fromISO && isoDate <= STATE.range.toISO;
+}
+
+/** 月キーを取得（YYYY-MM形式） */
+function monthKey(dt) {
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}`;
+}
+
+/** 翌月キーを取得 */
+function nextMonthKey_(baseYYYYMM) {
+  const [y, m] = baseYYYYMM.split('-').map(Number);
+  const d = new Date(y, m - 1, 1);
+  d.setMonth(d.getMonth() + 1);
+  return monthKey(d);
+}
+
+/** 月キーが編集可能かどうか */
+function isMonthEditable(mk) {
+  if (!STATE.settings) return false;
+  const base = STATE.settings.baseMonth;
+  const next = nextMonthKey_(base);
+  return mk === base || mk === next;
 }
 
 // =============================================================================

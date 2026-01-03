@@ -12,6 +12,7 @@
 const SHEET_SETTINGS = '01_Settings';
 const SHEET_USERS    = '02_Users';
 const SHEET_EVENTS   = '03_Events';
+const SHEET_NOTES    = '05_Notes';
 
 const SETTINGS_BASE_MONTH_CELL = 'B5';      // YYYY-MM
 const SETTINGS_EDITABLE_MONTHS_CELL = 'B6'; // 2
@@ -61,13 +62,19 @@ function getBootstrap() {
     const range = getEditableRange_(settings);
     const events = listEvents_(range.fromISO, range.toISO);
 
+    // 当月〜翌月の備考を取得
+    const fromMonth = settings.baseMonth;
+    const toMonth = nextMonthKeyServer_(settings.baseMonth);
+    const notes = getNotesMap_(fromMonth, toMonth);
+
     return {
       ok: true,
       user,
       settings,
       masters,
       range,
-      events
+      events,
+      notes
     };
   } catch (e) {
     console.error('getBootstrap error:', e);
@@ -660,4 +667,125 @@ function asTimeStr_(v) {
     return Utilities.formatDate(v, settings.tz, 'HH:mm');
   }
   return String(v);
+}
+
+/**
+ * 翌月キーを取得（サーバ側）
+ */
+function nextMonthKeyServer_(baseYYYYMM) {
+  const [y, m] = baseYYYYMM.split('-').map(Number);
+  const d = new Date(y, m - 1, 1);
+  d.setMonth(d.getMonth() + 1);
+  const settings = getSettings_();
+  return Utilities.formatDate(d, settings.tz, 'yyyy-MM');
+}
+
+// =============================================================================
+// Notes（月単位の備考）
+// =============================================================================
+
+/**
+ * 05_Notesシートを確保（なければ作成）
+ */
+function ensureNotesSheet_() {
+  const ss = SpreadsheetApp.getActive();
+  let sh = ss.getSheetByName(SHEET_NOTES);
+
+  if (!sh) {
+    sh = ss.insertSheet(SHEET_NOTES);
+    sh.getRange(1, 1, 1, 4).setValues([['月キー', '備考', '更新日時', '更新者']]);
+    sh.setFrozenRows(1);
+  }
+
+  return sh;
+}
+
+/**
+ * 指定期間の月備考を取得
+ */
+function getNotesMap_(fromMonthYYYYMM, toMonthYYYYMM) {
+  const sh = ensureNotesSheet_();
+  const lastRow = sh.getLastRow();
+  const map = {};
+
+  if (lastRow < 2) return map;
+
+  const values = sh.getRange(2, 1, lastRow - 1, 2).getValues(); // A:month, B:notes
+
+  for (const [mk, notes] of values) {
+    if (!mk) continue;
+    const key = String(mk).trim();
+    if (key >= fromMonthYYYYMM && key <= toMonthYYYYMM) {
+      map[key] = String(notes || '');
+    }
+  }
+
+  return map;
+}
+
+/**
+ * 月備考を追加/更新
+ */
+function upsertNote(monthKey, text) {
+  const lock = LockService.getDocumentLock();
+  try {
+    lock.waitLock(10000);
+  } catch (e) {
+    return { ok: false, error: 'LOCK_TIMEOUT' };
+  }
+
+  try {
+    const user = getUserContext_();
+    const settings = getSettings_();
+
+    // 権限チェック
+    if (!(user.role === 'editor' || user.role === 'admin')) {
+      throw new Error('FORBIDDEN');
+    }
+
+    if (!/^\d{4}-\d{2}$/.test(monthKey)) {
+      throw new Error('INVALID_MONTH');
+    }
+
+    // 当月・翌月のみ編集可
+    const base = settings.baseMonth;
+    const next = nextMonthKeyServer_(base);
+    if (!(monthKey === base || monthKey === next)) {
+      throw new Error('OUT_OF_EDITABLE_RANGE');
+    }
+
+    const sh = ensureNotesSheet_();
+    const lastRow = sh.getLastRow();
+    const tz = settings.tz;
+    const now = new Date();
+
+    // 既存行を探索
+    if (lastRow >= 2) {
+      const keys = sh.getRange(2, 1, lastRow - 1, 1).getValues();
+      for (let i = 0; i < keys.length; i++) {
+        if (String(keys[i][0]).trim() === monthKey) {
+          // 更新
+          sh.getRange(2 + i, 2).setValue(String(text || ''));
+          sh.getRange(2 + i, 3).setValue(Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'));
+          sh.getRange(2 + i, 4).setValue(user.email);
+          return { ok: true };
+        }
+      }
+    }
+
+    // 新規追加
+    sh.appendRow([
+      monthKey,
+      String(text || ''),
+      Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
+      user.email
+    ]);
+
+    return { ok: true };
+  } catch (e) {
+    console.error('upsertNote error:', e);
+    return { ok: false, error: e.message || 'SAVE_FAILED' };
+  } finally {
+    lock.releaseLock();
+  }
 }
