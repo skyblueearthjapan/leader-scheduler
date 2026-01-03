@@ -290,7 +290,7 @@ function renderMonthGrid(container, monthStart) {
         }
       });
 
-      // その日のイベントを表示
+      // その日のイベントを表示（縦書き専用レイアウト）
       const dayEvents = STATE.events.filter(e => e.date === iso);
       for (const e of dayEvents) {
         const item = document.createElement('div');
@@ -299,27 +299,21 @@ function renderMonthGrid(container, monthStart) {
         // 色は上のバーで表現
         item.style.setProperty('--typeColor', typeColor(e.type));
 
-        // 表示文字：件名とメモ（＋場所）を優先
+        // 縦書き用：件名＋補足をまとめて本文に
         const time = e.start_time ? e.start_time : '';
         const title = (e.title || '').trim();
         const loc = (e.location || '').trim();
         const memo = (e.memo || '').trim();
 
-        // 2行目は「メモ優先、無ければ場所」
-        const second = memo ? memo : (loc ? `@${loc}` : '');
-
-        // 種別ラベル（極小チップ、4文字以内のみ表示）
-        const typeLabelJa = shortTypeLabel_(e.type);
+        // 縦書き本文：件名＋メモ/場所
+        const bodyParts = [title || '(無題)'];
+        if (memo) bodyParts.push(memo);
+        else if (loc) bodyParts.push(`@${loc}`);
+        const bodyText = bodyParts.join('\n');
 
         item.innerHTML = `
-          <div class="eventTop">
-            <div class="eventTitle">${esc(title || '(無題)')}</div>
-            <div class="eventRight">
-              ${typeLabelJa ? `<span class="typeChip">${esc(typeLabelJa)}</span>` : ''}
-              ${time ? `<div class="eventTime">${esc(time)}</div>` : ''}
-            </div>
-          </div>
-          ${second ? `<div class="eventSub">${esc(second)}</div>` : ''}
+          ${time ? `<div class="eventVTime">${esc(time)}</div>` : ''}
+          <div class="eventVText">${esc(bodyText)}</div>
         `;
 
         // イベントクリック → 編集
