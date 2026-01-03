@@ -101,13 +101,10 @@ function getSettings_() {
   }
 
   const tz = String(sh.getRange(SETTINGS_TZ_CELL).getValue() || 'Asia/Tokyo');
-  let baseMonth = String(sh.getRange(SETTINGS_BASE_MONTH_CELL).getDisplayValue() || '').trim();
   const editableMonths = Number(sh.getRange(SETTINGS_EDITABLE_MONTHS_CELL).getValue() || 2);
 
-  // baseMonthが空または不正な場合は今日の年月を自動採用
-  if (!/^\d{4}-\d{2}$/.test(baseMonth)) {
-    baseMonth = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
-  }
+  // 常に今月を基準月として使用（自動進行）
+  const baseMonth = Utilities.formatDate(new Date(), tz, 'yyyy-MM');
 
   return { tz, baseMonth, editableMonths };
 }
