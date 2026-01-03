@@ -971,7 +971,7 @@ function ensureDaySettingsSheet_() {
 
 /**
  * 指定期間の日付設定を取得
- * @returns {Object} { 'YYYY-MM-DD': { type: 'WORKDAY'|'HOLIDAY', memo: '' } }
+ * @returns {Object} { 'YYYY-MM-DD': 'WORKDAY'|'HOLIDAY' }
  */
 function getDaySettingsMap_(fromISO, toISO) {
   const sh = ensureDaySettingsSheet_();
@@ -980,9 +980,9 @@ function getDaySettingsMap_(fromISO, toISO) {
 
   if (lastRow < 2) return map;
 
-  const values = sh.getRange(2, 1, lastRow - 1, 3).getValues(); // A:date, B:type, C:memo
+  const values = sh.getRange(2, 1, lastRow - 1, 2).getValues(); // A:date, B:type
 
-  for (const [dateVal, type, memo] of values) {
+  for (const [dateVal, type] of values) {
     if (!dateVal) continue;
     let key;
     if (dateVal instanceof Date) {
@@ -990,11 +990,9 @@ function getDaySettingsMap_(fromISO, toISO) {
     } else {
       key = String(dateVal).trim();
     }
-    if (key >= fromISO && key <= toISO) {
-      map[key] = {
-        type: String(type || '').trim(),
-        memo: String(memo || '').trim()
-      };
+    const typeStr = String(type || '').trim();
+    if (key >= fromISO && key <= toISO && typeStr) {
+      map[key] = typeStr;  // 'WORKDAY' or 'HOLIDAY'
     }
   }
 
