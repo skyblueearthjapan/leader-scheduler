@@ -15,6 +15,19 @@
       <div class="subtle" id="userBadge">読み込み中…</div>
     </div>
     <div class="topbar__right">
+      <div class="infobar">
+        <div class="infoItem">
+          <span class="k">基準月</span><span class="v" id="baseMonth">—</span>
+        </div>
+        <div class="sep"></div>
+        <div class="infoItem">
+          <span class="k">編集</span><span class="v" id="editableRange">—</span>
+        </div>
+        <div class="sep"></div>
+        <div class="infoItem">
+          <span class="k">権限</span><span class="v" id="role">—</span>
+        </div>
+      </div>
       <button class="btn" id="reloadBtn" type="button">再読込</button>
       <button class="btn btn--ghost" id="archiveBtn" type="button">過去一覧</button>
     </div>
@@ -22,22 +35,6 @@
 
   <!-- メインコンテンツ -->
   <main class="container">
-    <!-- コントロール情報 -->
-    <section class="controls">
-      <div class="control">
-        <div class="label">表示基準月</div>
-        <div class="value" id="baseMonth">—</div>
-      </div>
-      <div class="control">
-        <div class="label">編集可能期間</div>
-        <div class="value" id="editableRange">—</div>
-      </div>
-      <div class="control">
-        <div class="label">権限</div>
-        <div class="value" id="role">—</div>
-      </div>
-    </section>
-
     <!-- ホワイトボード -->
     <section class="board board--full">
       <div class="monthGrid monthGrid--big" id="grid1"></div>

@@ -27,7 +27,7 @@
     color:var(--text);
   }
 
-  /* Top bar: thinner + lighter */
+  /* Top bar: compressed for maximum calendar space */
   .topbar{
     position: sticky;
     top:0;
@@ -35,20 +35,57 @@
     display:flex;
     justify-content:space-between;
     align-items:center;
-    padding:10px 12px;
+    padding:8px 10px;
+    gap:10px;
     background:rgba(255,255,255,.9);
     backdrop-filter: blur(8px);
     border-bottom:1px solid var(--line);
   }
-  .app-title{font-weight:900; letter-spacing:.2px;}
-  .subtle{color:var(--muted); font-size:12px; margin-top:2px;}
-  .topbar__right{display:flex; gap:8px;}
+  .topbar > div:first-child{
+    min-width:260px;
+  }
+  .app-title{font-weight:900; font-size:16px; line-height:1.1; letter-spacing:.2px;}
+  .subtle{color:var(--muted); font-size:11px; margin-top:2px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .topbar__right{display:flex; gap:8px; align-items:center;}
+
+  /* Inline info bar */
+  .infobar{
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:6px 10px;
+    border:1px solid var(--line);
+    border-radius:14px;
+    background:#ffffff;
+    white-space:nowrap;
+  }
+  .infoItem{
+    display:flex;
+    align-items:baseline;
+    gap:6px;
+  }
+  .infobar .k{
+    font-size:11px;
+    color:var(--muted);
+    font-weight:800;
+    letter-spacing:.02em;
+  }
+  .infobar .v{
+    font-size:12px;
+    color:var(--text);
+    font-weight:950;
+  }
+  .sep{
+    width:1px;
+    height:18px;
+    background:var(--line);
+  }
 
   .btn{
     border:1px solid var(--line);
     background:#ffffff;
     color:var(--text);
-    padding:8px 12px;
+    padding:7px 10px;
     border-radius:12px;
     cursor:pointer;
     font-weight:700;
@@ -72,29 +109,12 @@
   }
   .iconBtn:hover{background:var(--soft);}
 
-  /* Make board big: reduce margins, remove dark card feel */
+  /* Calendar area maximize: minimal padding */
   .container{
-    padding:10px 10px 16px;
+    padding:6px 8px 12px;
     max-width: 1600px;
     margin:0 auto;
   }
-
-  /* Controls smaller so calendar area grows */
-  .controls{
-    display:flex;
-    gap:10px;
-    flex-wrap:wrap;
-    margin:6px 0 10px;
-  }
-  .control{
-    background:#ffffff;
-    border:1px solid var(--line);
-    border-radius:14px;
-    padding:8px 10px;
-    min-width:220px;
-  }
-  .control .label{font-size:12px; color:var(--muted);}
-  .control .value{font-size:14px; margin-top:4px; font-weight:900;}
 
   .board{
     background:#ffffff;
@@ -104,7 +124,7 @@
   .board--full{
     display:flex;
     flex-direction:column;
-    gap:14px;
+    gap:10px;
   }
 
   /* Month grid (Whiteboard style) */
@@ -121,12 +141,12 @@
   }
   .monthGrid--spaced{ margin-top:0; }
 
-  /* Bigger cells = bigger calendar */
+  /* Optimized grid for maximum visibility */
   .gridRow{
     display:grid;
-    /* month label wider, notes a bit narrower to give days more space */
-    grid-template-columns: 110px repeat(31, minmax(42px, 1fr)) 200px;
-    min-width: 1500px;
+    /* month label narrower, notes narrower to give days more space */
+    grid-template-columns: 96px repeat(31, minmax(40px, 1fr)) 180px;
+    min-width: 1440px;
   }
 
   .cell{
@@ -171,9 +191,9 @@
     font-size:11px;
   }
 
-  /* Events area larger */
+  /* Events area: optimized for visibility */
   .eventsCell{
-    min-height:200px;
+    min-height:170px;
     white-space:normal;
     line-height:1.35;
     vertical-align:top;
@@ -206,7 +226,7 @@
   }
   .notesBody{
     background:var(--notes);
-    min-height:200px;
+    min-height:170px;
   }
 
   /* Weekend / Today */
@@ -318,12 +338,14 @@
   @keyframes spin{to{transform:rotate(360deg);}}
   .loading__text{font-size:14px; color:var(--text);}
 
-  /* Responsive */
+  /* Responsive: hide infobar on narrow screens to maximize calendar */
+  @media (max-width:1100px){
+    .infobar{display:none;}
+  }
+
   @media (max-width:768px){
     .topbar{flex-direction:column; gap:10px; align-items:flex-start;}
     .topbar__right{width:100%;}
-    .controls{flex-direction:column;}
-    .control{min-width:100%;}
     .formRow.two{grid-template-columns:1fr;}
   }
 </style>
