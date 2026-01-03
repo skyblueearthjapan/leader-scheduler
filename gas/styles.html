@@ -288,19 +288,24 @@
     font-size: 11px !important;
     font-weight: 900 !important;
     color: var(--muted) !important;
-    margin-bottom: 4px !important;
-    display: block !important;
+    display: inline !important;
+  }
+  .vTime::after{
+    content: "\A" !important;
+    white-space: pre !important;
   }
 
   /* テキスト：件名（主役・大きく太字） */
   .vTitle{
-    font-size: 15px !important;
+    font-size: 14px !important;
     font-weight: 950 !important;
-    line-height: 1.15 !important;
+    line-height: 1.2 !important;
     color: var(--text) !important;
-    margin-left: 8px !important;
-    white-space: pre-wrap !important;
-    display: block !important;
+    display: inline !important;
+  }
+  .vTitle::after{
+    content: "\A" !important;
+    white-space: pre !important;
   }
 
   /* テキスト：場所 */
@@ -308,9 +313,11 @@
     font-size: 12px !important;
     font-weight: 800 !important;
     color: #475569 !important;
-    margin-left: 8px !important;
-    white-space: pre-wrap !important;
-    display: block !important;
+    display: inline !important;
+  }
+  .vLoc::after{
+    content: "\A" !important;
+    white-space: pre !important;
   }
 
   /* テキスト：メモ */
@@ -318,9 +325,7 @@
     font-size: 12px !important;
     font-weight: 700 !important;
     color: #64748b !important;
-    margin-left: 8px !important;
-    white-space: pre-wrap !important;
-    display: block !important;
+    display: inline !important;
   }
 
   /* 種別ごとの色 */
