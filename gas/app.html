@@ -88,20 +88,6 @@ function statusLabel(code) {
   return s ? s.label : code;
 }
 
-/** 予定テキストをフォーマット（縦書き用） */
-function formatEventText_(e) {
-  const time = e.start_time ? `${e.start_time}${e.end_time ? '–' + e.end_time : ''} ` : '';
-  const title = (e.title || '').trim();
-  const loc = (e.location || '').trim();
-  const memo = (e.memo || '').trim();
-
-  const lines = [];
-  lines.push(`${time}${title || '(無題)'}`.trim());
-  if (loc) lines.push(`@${loc}`);
-  if (memo) lines.push(memo);
-  return lines.join('\n');
-}
-
 /** 種別からCSSクラスを取得 */
 function typeClass_(type) {
   const map = {
@@ -116,6 +102,42 @@ function typeClass_(type) {
     OTHER: 'type-OTHER'
   };
   return map[type] || '';
+}
+
+/** 1予定ブロックを生成（縦書き・縦積み構造） */
+function createEventBlock_(e) {
+  const block = document.createElement('div');
+  block.className = `eventBlock ${typeClass_(e.type)}`;
+
+  // 時間
+  const time = e.start_time
+    ? (e.end_time ? `${e.start_time}–${e.end_time}` : e.start_time)
+    : '';
+
+  // 件名
+  const title = (e.title || '').trim() || '(無題)';
+
+  // 場所
+  const loc = (e.location || '').trim();
+
+  // メモ
+  const memo = (e.memo || '').trim();
+
+  // HTML生成（縦積み：時間→件名→場所→メモ）
+  block.innerHTML = `
+    ${time ? `<div class="vTime">${esc(time)}</div>` : ''}
+    <div class="vTitle">${esc(title)}</div>
+    ${loc ? `<div class="vLoc">@${esc(loc)}</div>` : ''}
+    ${memo ? `<div class="vMemo">${esc(memo)}</div>` : ''}
+  `;
+
+  // クリック → 編集
+  block.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    openEditModal(e.event_id);
+  });
+
+  return block;
 }
 
 // =============================================================================
@@ -290,33 +312,38 @@ function renderMonthGrid(container, monthStart) {
 
       // セルクリック → 新規作成
       cell.addEventListener('click', (ev) => {
-        if (ev.target.classList.contains('eventItem')) return;
+        if (ev.target.closest('.eventBlock')) return;
         if (canEdit) {
           openCreateModal(iso);
         }
       });
 
-      // その日のイベントを表示（縦書きテキスト直書き方式）
+      // その日のイベントを表示（2列固定＋縦積み構造）
       const dayEvents = STATE.events.filter(e => e.date === iso);
       if (dayEvents.length > 0) {
-        const stack = document.createElement('div');
-        stack.className = 'eventsTextStack';
+        const dayEventsContainer = document.createElement('div');
+        dayEventsContainer.className = 'dayEvents';
 
-        for (const e of dayEvents) {
-          const line = document.createElement('div');
-          line.className = `eventLine ${typeClass_(e.type)}`;
-          line.textContent = formatEventText_(e);
+        // 左列（1件目、3件目、5件目...）
+        const col1 = document.createElement('div');
+        col1.className = 'eventCol';
 
-          // イベントクリック → 編集
-          line.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            openEditModal(e.event_id);
-          });
+        // 右列（2件目、4件目、6件目...）
+        const col2 = document.createElement('div');
+        col2.className = 'eventCol';
 
-          stack.appendChild(line);
-        }
+        dayEvents.forEach((e, i) => {
+          const block = createEventBlock_(e);
+          if (i % 2 === 0) {
+            col1.appendChild(block);
+          } else {
+            col2.appendChild(block);
+          }
+        });
 
-        cell.appendChild(stack);
+        dayEventsContainer.appendChild(col1);
+        dayEventsContainer.appendChild(col2);
+        cell.appendChild(dayEventsContainer);
       }
     }
 
