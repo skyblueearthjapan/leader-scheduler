@@ -34,7 +34,7 @@ const USERS_DATA_START_ROW = 6;
 function doGet() {
   return HtmlService.createTemplateFromFile('index')
     .evaluate()
-    .setTitle('２ヶ月スケジュール（ホワイトボード形式）')
+    .setTitle('社長スケジュール')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
 }
