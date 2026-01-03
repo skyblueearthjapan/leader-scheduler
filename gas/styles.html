@@ -128,82 +128,143 @@
     gap:10px;
   }
 
-  /* Month grid (Whiteboard style) */
+  /* Month grid (Whiteboard style) - 3行統合構造 */
   .monthGrid{
+    display: grid;
+    /* 月ラベル(64px) + 31日 + 備考(88px) */
+    grid-template-columns: 64px repeat(31, minmax(28px, 1fr)) 88px;
+    grid-template-rows: auto auto 1fr;
     background: var(--surface);
-    border-radius:16px;
-    overflow-x:auto;
-    color:var(--text);
-    border:1px solid var(--line);
+    border-radius: 16px;
+    color: var(--text);
+    border: 1px solid var(--line);
     box-shadow: 0 1px 0 rgba(15,23,42,.04);
-  }
-  .monthGrid--big{
-    /* Bigger footprint */
-  }
-  .monthGrid--spaced{ margin-top:0; }
-
-  /* Optimized grid for maximum visibility - minimal notes column */
-  .gridRow{
-    display:grid;
-    /* month label + 31 days + notes (minimized) */
-    grid-template-columns: 90px repeat(31, minmax(34px, 1fr)) 120px;
-    min-width: 1280px;
+    min-width: 1180px;
   }
 
-  .cell{
-    border-right:1px solid var(--line);
-    border-bottom:1px solid var(--line);
-    padding:6px 6px;
-    min-height:34px;
-    font-size:12px;
-  }
-  .cell:last-child{
-    border-right:none;
-  }
-
-  /* Month label */
+  /* 月ラベル：3行統合（grid-row span 3） */
   .monthLabel{
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-size:26px;
-    font-weight:1000;
-    background:#ffffff;
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 1000;
+    background: #ffffff;
+    border-right: 1px solid var(--line);
     writing-mode: vertical-rl;
     text-orientation: upright;
-    letter-spacing: 0.1em;
+    letter-spacing: 0.08em;
   }
 
-  /* Day header bigger */
+  /* 共通セルスタイル */
+  .cell{
+    border-right: 1px solid var(--line);
+    border-bottom: 1px solid var(--line);
+    font-size: 12px;
+  }
+  .cell:nth-child(33){ border-right: none; } /* 備考列 */
+
+  /* 日付ヘッダー（1行目） */
   .dayHead{
-    background:var(--soft);
-    font-weight:900;
-    text-align:center;
-    padding:8px 0 6px;
-    min-height:32px;
-  }
-  .wdayHead{
-    background:var(--soft);
-    font-weight:800;
-    text-align:center;
-    padding:6px 0 8px;
-    min-height:32px;
-    color:#334155;
-    font-size:11px;
+    grid-row: 1;
+    background: var(--soft);
+    font-weight: 900;
+    text-align: center;
+    padding: 4px 0;
+    min-height: 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
   }
 
-  /* Events area: optimized for visibility */
+  /* 曜日ヘッダー（2行目） */
+  .wdayHead{
+    grid-row: 2;
+    background: var(--soft);
+    font-weight: 800;
+    text-align: center;
+    padding: 3px 0;
+    min-height: 22px;
+    color: #334155;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+
+  /* 備考ヘッダー（1-2行統合） */
+  .notesHead{
+    grid-column: 33;
+    grid-row: 1 / span 2;
+    background: var(--soft);
+    font-weight: 900;
+    font-size: 11px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* 予定セル（3行目）- セル内スクロール対応 */
   .eventsCell{
-    min-height:170px;
-    white-space:normal;
-    line-height:1.35;
-    vertical-align:top;
-    cursor:pointer;
-    background:#fff;
+    grid-row: 3;
+    min-height: 180px;
+    max-height: 320px;
+    overflow-y: auto;
+    white-space: normal;
+    line-height: 1.35;
+    vertical-align: top;
+    cursor: pointer;
+    background: #fff;
+    padding: 4px;
     transition: background 0.1s;
   }
-  .eventsCell:hover{background:#f9fbff;}
-  .eventsCell.not-editable{cursor:default; background:#fafafa;}
+  .eventsCell:hover{ background: #f9fbff; }
+  .eventsCell.not-editable{ cursor: default; background: #fafafa; }
+
+  /* 備考セル（3行目）- 縦書き表示 */
+  .notesBody{
+    grid-column: 33;
+    grid-row: 3;
+    background: var(--notes);
+    min-height: 180px;
+    max-height: 320px;
+    padding: 4px;
+    overflow: hidden;
+    border-right: none;
+    border-bottom: 1px solid var(--line);
+  }
+
+  /* 備考テキスト - 縦書き */
+  .notesText{
+    width: 100%;
+    height: 100%;
+    min-height: 168px;
+    resize: none;
+    border: 1px dashed var(--line);
+    border-radius: 6px;
+    padding: 6px 4px;
+    font-size: 11px;
+    line-height: 1.3;
+    background: #ffffff;
+    color: var(--text);
+    font-family: inherit;
+    /* 縦書き */
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+  }
+  .notesText:focus{
+    outline: 2px solid var(--accent3);
+    border-color: transparent;
+  }
+  .notesText:disabled{
+    background: var(--soft);
+    opacity: 0.7;
+    cursor: not-allowed;
+  }
 
   /* Event item: 上バー＋本文2行 - 件名・メモ優先表示 */
   .eventItem{
@@ -284,42 +345,6 @@
     -webkit-line-clamp: 2;
     -webkit-box-orient: vertical;
     overflow: hidden;
-  }
-
-  .notesHead{
-    background:var(--soft);
-    font-weight:900;
-    text-align:center;
-    font-size:11px;
-  }
-  .notesBody{
-    background:var(--notes);
-    min-height:170px;
-    padding:4px;
-    overflow:hidden;
-  }
-  .notesText{
-    width:100%;
-    height:100%;
-    min-height:158px;
-    resize:none;
-    border:1px dashed var(--line);
-    border-radius:8px;
-    padding:6px;
-    font-size:11px;
-    line-height:1.4;
-    background:#ffffff;
-    color:var(--text);
-    font-family:inherit;
-  }
-  .notesText:focus{
-    outline:2px solid var(--accent3);
-    border-color:transparent;
-  }
-  .notesText:disabled{
-    background:var(--soft);
-    opacity:0.7;
-    cursor:not-allowed;
   }
 
   /* Weekend / Today */
@@ -433,19 +458,24 @@
 
   /* Responsive: optimize for different screen sizes */
   @media (max-width:1400px){
-    .gridRow{grid-template-columns: 90px repeat(31, minmax(32px, 1fr)) 96px;}
+    .monthGrid{
+      grid-template-columns: 56px repeat(31, minmax(26px, 1fr)) 80px;
+      min-width: 1080px;
+    }
   }
   @media (max-width:1200px){
-    .gridRow{grid-template-columns: 80px repeat(31, minmax(30px, 1fr)) 72px;}
-    .monthLabel{font-size:22px;}
+    .monthGrid{
+      grid-template-columns: 48px repeat(31, minmax(24px, 1fr)) 72px;
+      min-width: 960px;
+    }
+    .monthLabel{ font-size: 24px; }
   }
   @media (max-width:1100px){
-    .infobar{display:none;}
+    .infobar{ display: none; }
   }
-
   @media (max-width:768px){
-    .topbar{flex-direction:column; gap:10px; align-items:flex-start;}
-    .topbar__right{width:100%;}
-    .formRow.two{grid-template-columns:1fr;}
+    .topbar{ flex-direction: column; gap: 10px; align-items: flex-start; }
+    .topbar__right{ width: 100%; }
+    .formRow.two{ grid-template-columns: 1fr; }
   }
 </style>

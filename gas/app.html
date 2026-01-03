@@ -196,82 +196,66 @@ function renderBoards() {
   renderMonthGrid(el('grid2'), addMonths(base, 1));
 }
 
+/**
+ * 月グリッドを描画（CSS Grid ベース - 3行統合構造）
+ * 構造: 月ラベル(span 3) | 日付(row1) | 備考ヘッダー(span 2)
+ *                        | 曜日(row2) |
+ *                        | 予定(row3) | 備考本体(row3)
+ */
 function renderMonthGrid(container, monthStart) {
   container.innerHTML = '';
 
   const daysInMonth = endOfMonth(monthStart).getDate();
-  const monthLabel = `${monthStart.getMonth() + 1}月`;
+  const monthLabelText = `${monthStart.getMonth() + 1}月`;
 
-  // ヘッダー行（日付）
-  container.appendChild(buildHeaderRow(monthLabel, monthStart, daysInMonth, true));
-  // ヘッダー行（曜日）
-  container.appendChild(buildHeaderRow('', monthStart, daysInMonth, false));
-  // イベント行
-  container.appendChild(buildEventsRow(monthStart, daysInMonth));
-}
+  // 1. 月ラベル（3行統合）
+  const monthLabel = document.createElement('div');
+  monthLabel.className = 'monthLabel';
+  monthLabel.textContent = monthLabelText;
+  container.appendChild(monthLabel);
 
-function buildHeaderRow(monthLabel, monthStart, daysInMonth, isDayRow) {
-  const row = document.createElement('div');
-  row.className = 'gridRow';
-
-  // 月ラベルセル
-  const monthCell = document.createElement('div');
-  monthCell.className = 'cell monthLabel';
-  if (isDayRow) {
-    monthCell.textContent = monthLabel;
-    monthCell.setAttribute('rowspan', '3');
-  }
-  row.appendChild(monthCell);
-
-  // 1〜31日
+  // 2. 日付ヘッダー（row 1）+ 曜日ヘッダー（row 2）
   for (let day = 1; day <= 31; day++) {
-    const cell = document.createElement('div');
-    cell.className = 'cell ' + (isDayRow ? 'dayHead' : 'wdayHead');
+    const dayHead = document.createElement('div');
+    dayHead.className = 'cell dayHead';
+
+    const wdayHead = document.createElement('div');
+    wdayHead.className = 'cell wdayHead';
 
     if (day <= daysInMonth) {
       const dt = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
       const dayOfWeek = dt.getDay();
 
-      cell.textContent = isDayRow ? String(day) : wdayJa(dt);
+      dayHead.textContent = String(day);
+      wdayHead.textContent = wdayJa(dt);
 
       // 週末クラス
       if (dayOfWeek === 0) {
-        cell.classList.add('isWeekend');
-        cell.parentElement?.classList.add('isSunday');
-        cell.classList.add('isSunday');
+        dayHead.classList.add('isWeekend', 'isSunday');
+        wdayHead.classList.add('isWeekend', 'isSunday');
       } else if (dayOfWeek === 6) {
-        cell.classList.add('isWeekend');
-        cell.classList.add('isSaturday');
+        dayHead.classList.add('isWeekend', 'isSaturday');
+        wdayHead.classList.add('isWeekend', 'isSaturday');
       }
 
       // 今日
       if (isToday(dt)) {
-        cell.classList.add('isToday');
+        dayHead.classList.add('isToday');
+        wdayHead.classList.add('isToday');
       }
     }
 
-    row.appendChild(cell);
+    container.appendChild(dayHead);
+    container.appendChild(wdayHead);
   }
 
-  // 備考ヘッダー
-  const notes = document.createElement('div');
-  notes.className = 'cell notesHead';
-  notes.textContent = isDayRow ? '備考' : '';
-  row.appendChild(notes);
+  // 3. 備考ヘッダー（row 1-2 統合）
+  const notesHead = document.createElement('div');
+  notesHead.className = 'cell notesHead';
+  notesHead.textContent = '備考';
+  container.appendChild(notesHead);
 
-  return row;
-}
-
-function buildEventsRow(monthStart, daysInMonth) {
-  const row = document.createElement('div');
-  row.className = 'gridRow';
-
-  // 月ラベルセル（空）
-  const monthCell = document.createElement('div');
-  monthCell.className = 'cell monthLabel';
-  row.appendChild(monthCell);
-
-  // 1〜31日のイベントセル
+  // 4. 予定セル（row 3）
   for (let day = 1; day <= 31; day++) {
     const cell = document.createElement('div');
     cell.className = 'cell eventsCell';
@@ -312,7 +296,7 @@ function buildEventsRow(monthStart, daysInMonth) {
         const item = document.createElement('div');
         item.className = 'eventItem';
 
-        // 色は上のバーで表現（左帯なし）
+        // 色は上のバーで表現
         item.style.setProperty('--typeColor', typeColor(e.type));
 
         // 表示文字：件名とメモ（＋場所）を優先
@@ -348,12 +332,12 @@ function buildEventsRow(monthStart, daysInMonth) {
       }
     }
 
-    row.appendChild(cell);
+    container.appendChild(cell);
   }
 
-  // 備考セル（月単位のメモ）
-  const notes = document.createElement('div');
-  notes.className = 'cell notesBody';
+  // 5. 備考セル（row 3、月単位のメモ）
+  const notesBody = document.createElement('div');
+  notesBody.className = 'cell notesBody';
 
   const mk = monthKey(monthStart);
   const canEditRole = STATE.user.role === 'editor' || STATE.user.role === 'admin';
@@ -362,7 +346,7 @@ function buildEventsRow(monthStart, daysInMonth) {
 
   const ta = document.createElement('textarea');
   ta.className = 'notesText';
-  ta.placeholder = '備考\n・\n・';
+  ta.placeholder = '備考';
   ta.value = STATE.notes[mk] || '';
   ta.disabled = !canEdit;
 
@@ -380,10 +364,8 @@ function buildEventsRow(monthStart, daysInMonth) {
     }, 600);
   });
 
-  notes.appendChild(ta);
-  row.appendChild(notes);
-
-  return row;
+  notesBody.appendChild(ta);
+  container.appendChild(notesBody);
 }
 
 /** 日付が編集可能期間内かどうか */
