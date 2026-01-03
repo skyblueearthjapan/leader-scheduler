@@ -393,8 +393,7 @@ function createEvent(payload) {
       Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
       user.email,
       Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
-      user.email,
-      ''
+      user.email
     ]]);
     // 時刻列（C, D）をテキスト形式に設定
     sh.getRange(newRow, 3, 1, 2).setNumberFormat('@');
@@ -578,7 +577,8 @@ function applyPatch(recordId, patch, clientRevision) {
       const endTimeText = patch.end_time ? String(patch.end_time) : '';
 
       const newRow = sh.getLastRow() + 1;
-      sh.getRange(newRow, 1, 1, 16).setValues([[
+      // A〜O列（15列）に書き込み
+      sh.getRange(newRow, 1, 1, 15).setValues([[
         newId,
         patch.date ? new Date(patch.date + 'T00:00:00') : '',
         startTimeText,
@@ -589,15 +589,16 @@ function applyPatch(recordId, patch, clientRevision) {
         patch.memo || '',
         patch.display_order !== undefined && patch.display_order !== '' ? Number(patch.display_order) : '',
         patch.status || 'CONFIRMED',
-        '', // 月キー
+        '', // 月キー（K列）
         Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
         user.email,
         Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
-        user.email,
-        newRevision // O列: revision
+        user.email
       ]]);
       // 時刻列をテキスト形式に
       sh.getRange(newRow, 3, 1, 2).setNumberFormat('@');
+      // P列にリビジョンを書き込み
+      sh.getRange(newRow, 16).setValue(newRevision);
 
       return { ok: true, recordId: newId, serverRevision: newRevision };
 
