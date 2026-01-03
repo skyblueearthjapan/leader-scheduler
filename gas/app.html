@@ -104,44 +104,63 @@ function typeClass_(type) {
   return map[type] || '';
 }
 
-/** 1予定テキストを生成（セル直書き・縦書き・縦積み） */
+/** 1予定テキストを生成（セル直書き・縦書き・1本テキスト方式） */
 function createEventText_(e) {
   const block = document.createElement('div');
   block.className = `eventText ${typeClass_(e.type)}`;
 
-  // 時間（必ずDOM追加、空ならdisplay:none）
+  // 全テキストを1本に結合（縦書きで改行なし＝1列表示）
+  const inner = document.createElement('span');
+  inner.className = 'eventTextInner';
+
+  // パーツを配列で組み立て
+  const parts = [];
+
+  // 時間
   const timeStr = e.start_time
     ? (e.end_time ? `${e.start_time}–${e.end_time}` : e.start_time)
     : '';
-  const vTime = document.createElement('div');
-  vTime.className = 'vTime';
-  vTime.textContent = timeStr;
-  if (!timeStr) vTime.style.display = 'none';
+  if (timeStr) {
+    const sp = document.createElement('span');
+    sp.className = 'evTime';
+    sp.textContent = timeStr;
+    parts.push(sp);
+  }
 
-  // 件名（必ずDOM追加、主役）
-  const vTitle = document.createElement('div');
-  vTitle.className = 'vTitle';
-  vTitle.textContent = (e.title || '').trim() || '(無題)';
+  // 件名（必須・主役）
+  const titleStr = (e.title || '').trim() || '(無題)';
+  const spTitle = document.createElement('span');
+  spTitle.className = 'evTitle';
+  spTitle.textContent = titleStr;
+  parts.push(spTitle);
 
-  // 場所（必ずDOM追加、空ならdisplay:none）
+  // 場所
   const locStr = (e.location || '').trim();
-  const vLoc = document.createElement('div');
-  vLoc.className = 'vLoc';
-  vLoc.textContent = locStr ? `@${locStr}` : '';
-  if (!locStr) vLoc.style.display = 'none';
+  if (locStr) {
+    const sp = document.createElement('span');
+    sp.className = 'evSub';
+    sp.textContent = `@${locStr}`;
+    parts.push(sp);
+  }
 
-  // メモ（必ずDOM追加、空ならdisplay:none）
+  // メモ
   const memoStr = (e.memo || '').trim();
-  const vMemo = document.createElement('div');
-  vMemo.className = 'vMemo';
-  vMemo.textContent = memoStr;
-  if (!memoStr) vMemo.style.display = 'none';
+  if (memoStr) {
+    const sp = document.createElement('span');
+    sp.className = 'evSub';
+    sp.textContent = memoStr;
+    parts.push(sp);
+  }
 
-  // 順番通りに追加（時間→件名→場所→メモ）
-  block.appendChild(vTime);
-  block.appendChild(vTitle);
-  block.appendChild(vLoc);
-  block.appendChild(vMemo);
+  // 区切り文字で結合してinnerに追加
+  parts.forEach((sp, i) => {
+    inner.appendChild(sp);
+    if (i < parts.length - 1) {
+      inner.appendChild(document.createTextNode('・'));
+    }
+  });
+
+  block.appendChild(inner);
 
   // クリック → 編集
   block.addEventListener('click', (ev) => {

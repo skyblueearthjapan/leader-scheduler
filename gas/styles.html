@@ -283,49 +283,29 @@
     border-radius: 10px 10px 0 0 !important;
   }
 
-  /* テキスト：時間 */
-  .vTime{
-    font-size: 11px !important;
-    font-weight: 900 !important;
-    color: var(--muted) !important;
-    display: inline !important;
-  }
-  .vTime::after{
-    content: "\A" !important;
-    white-space: pre !important;
-  }
-
-  /* テキスト：件名（主役・大きく太字） */
-  .vTitle{
-    font-size: 14px !important;
-    font-weight: 950 !important;
-    line-height: 1.2 !important;
-    color: var(--text) !important;
-    display: inline !important;
-  }
-  .vTitle::after{
-    content: "\A" !important;
-    white-space: pre !important;
-  }
-
-  /* テキスト：場所 */
-  .vLoc{
-    font-size: 12px !important;
-    font-weight: 800 !important;
-    color: #475569 !important;
-    display: inline !important;
-  }
-  .vLoc::after{
-    content: "\A" !important;
-    white-space: pre !important;
-  }
-
-  /* テキスト：メモ */
-  .vMemo{
-    font-size: 12px !important;
+  /* 縦書きテキスト：全要素を1本のテキストに結合 */
+  .eventTextInner{
+    font-size: 13px !important;
     font-weight: 700 !important;
+    line-height: 1.4 !important;
+    color: var(--text) !important;
+  }
+
+  /* タイトル部分（太字で強調） */
+  .eventTextInner .evTitle{
+    font-weight: 950 !important;
+  }
+
+  /* 時刻部分（小さめ・薄い色） */
+  .eventTextInner .evTime{
+    font-size: 11px !important;
+    color: var(--muted) !important;
+  }
+
+  /* 場所・メモ部分（やや薄い色） */
+  .eventTextInner .evSub{
+    font-size: 12px !important;
     color: #64748b !important;
-    display: inline !important;
   }
 
   /* 種別ごとの色 */
