@@ -20,6 +20,7 @@ const STATE = {
 // モーダル状態
 let MODAL_MODE = 'create'; // 'create' | 'edit'
 let CURRENT_EVENT_ID = null;
+let DAY_SETTING_CHANGED = false; // 日付設定が変更されたかどうか
 
 // 保存キュー（バックグラウンド保存用）
 const SAVE_QUEUE = [];
@@ -690,6 +691,7 @@ function getPayload() {
 function openCreateModal(dateISO) {
   MODAL_MODE = 'create';
   CURRENT_EVENT_ID = null;
+  DAY_SETTING_CHANGED = false;
 
   el('modalTitle').textContent = '予定追加';
   el('deleteBtn').style.display = 'none';
@@ -714,6 +716,7 @@ function openCreateModal(dateISO) {
 function openEditModal(id) {
   MODAL_MODE = 'edit';
   CURRENT_EVENT_ID = id;
+  DAY_SETTING_CHANGED = false;
 
   const e = STATE.eventById.get(id);
   if (!e) return;
@@ -758,6 +761,14 @@ function onSave() {
     alert('日付を入力してください');
     return;
   }
+
+  // 日付設定のみ変更した場合（スケジュール入力なし）は、モーダルを閉じるだけ
+  const hasScheduleInput = payload.title.trim() || payload.start_time || payload.end_time || payload.location || payload.memo;
+  if (DAY_SETTING_CHANGED && !hasScheduleInput && MODAL_MODE === 'create') {
+    openModal(false);
+    return;
+  }
+
   if (!payload.type) {
     alert('予定種別を選択してください');
     return;
@@ -940,6 +951,9 @@ function updateDaySettingButtons(dateISO) {
 async function toggleDaySetting(type) {
   const dateISO = el('f_date').value;
   if (!dateISO) return;
+
+  // 日付設定が変更されたことを記録
+  DAY_SETTING_CHANGED = true;
 
   const currentSetting = STATE.daySettings[dateISO];
 
