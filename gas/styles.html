@@ -1,0 +1,607 @@
+<style>
+/* =============================================================================
+   CSS Variables / リセット
+   ============================================================================= */
+:root {
+  --bg: #0b1220;
+  --text: #e5e7eb;
+  --muted: #6b7280;
+  --accent: #0f766e;
+  --accent-hover: #0d9488;
+  --paper: #ffffff;
+  --ink: #111827;
+  --danger: #be123c;
+  --danger-hover: #9f1239;
+  --border: #1f2937;
+  --border-light: #e5e7eb;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-size: 14px;
+}
+
+body {
+  font-family: system-ui, "Noto Sans JP", "Hiragino Kaku Gothic ProN", Meiryo, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+/* =============================================================================
+   トップバー
+   ============================================================================= */
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 16px;
+  background: #111827;
+  border-bottom: 1px solid var(--border);
+}
+
+.app-title {
+  font-weight: 900;
+  font-size: 1.1rem;
+}
+
+.subtle {
+  color: var(--muted);
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+.topbar__right {
+  display: flex;
+  gap: 8px;
+}
+
+/* =============================================================================
+   ボタン
+   ============================================================================= */
+.btn {
+  border: 1px solid #334155;
+  background: var(--bg);
+  color: var(--text);
+  padding: 8px 14px;
+  border-radius: 10px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn:hover:not(:disabled) {
+  background: #1e293b;
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+  font-weight: 800;
+}
+
+.btn--primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+  border-color: var(--accent-hover);
+}
+
+.btn--danger {
+  background: var(--danger);
+  border-color: var(--danger);
+  color: #fff;
+  font-weight: 800;
+}
+
+.btn--danger:hover:not(:disabled) {
+  background: var(--danger-hover);
+  border-color: var(--danger-hover);
+}
+
+.btn--ghost {
+  background: transparent;
+}
+
+.iconBtn {
+  width: 36px;
+  height: 36px;
+  border-radius: 12px;
+  background: #111827;
+  border: 1px solid #334155;
+  color: #fff;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s;
+}
+
+.iconBtn:hover {
+  background: #1e293b;
+}
+
+/* =============================================================================
+   コンテナ / コントロール
+   ============================================================================= */
+.container {
+  padding: 16px;
+  max-width: 1600px;
+  margin: 0 auto;
+}
+
+.controls {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 14px;
+}
+
+.control {
+  background: #0f172a;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 10px 14px;
+  min-width: 200px;
+}
+
+.control .label {
+  font-size: 12px;
+  color: #94a3b8;
+}
+
+.control .value {
+  font-size: 14px;
+  margin-top: 6px;
+  font-weight: 900;
+}
+
+/* =============================================================================
+   ホワイトボード
+   ============================================================================= */
+.board {
+  background: #0f172a;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 12px;
+}
+
+.board__sectionTitle {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 900;
+  padding: 8px 12px;
+  border-radius: 12px;
+  margin-bottom: 10px;
+  font-size: 15px;
+}
+
+.board__sectionTitle--spaced {
+  margin-top: 16px;
+}
+
+.monthGrid {
+  background: var(--paper);
+  border-radius: 14px;
+  overflow-x: auto;
+  color: var(--ink);
+  border: 1px solid var(--border-light);
+}
+
+.gridRow {
+  display: grid;
+  /* 月ラベル(80px) + 31日分(各40px最小) + 備考(180px) */
+  grid-template-columns: 80px repeat(31, minmax(40px, 1fr)) 180px;
+  min-width: 1400px;
+}
+
+.cell {
+  border-right: 1px solid var(--border-light);
+  border-bottom: 1px solid var(--border-light);
+  padding: 4px 6px;
+  min-height: 32px;
+  font-size: 12px;
+}
+
+.cell:last-child {
+  border-right: none;
+}
+
+.monthLabel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 900;
+  background: #fff;
+  writing-mode: vertical-rl;
+  text-orientation: upright;
+  letter-spacing: 0.1em;
+}
+
+.dayHead,
+.wdayHead {
+  background: #f3f4f6;
+  font-weight: 900;
+  text-align: center;
+  padding: 6px 0;
+  min-height: 28px;
+}
+
+.wdayHead {
+  color: #374151;
+  font-weight: 700;
+  font-size: 11px;
+}
+
+.eventsCell {
+  min-height: 140px;
+  white-space: normal;
+  line-height: 1.35;
+  cursor: pointer;
+  transition: background 0.1s;
+  vertical-align: top;
+}
+
+.eventsCell:hover {
+  background: #f8fafc;
+}
+
+.eventsCell.not-editable {
+  cursor: default;
+  background: #fafafa;
+}
+
+.eventItem {
+  padding: 4px 6px;
+  border-radius: 8px;
+  margin: 3px 0;
+  background: #f3f4f6;
+  border: 1px solid var(--border-light);
+  border-left-width: 5px;
+  cursor: pointer;
+  transition: box-shadow 0.1s;
+}
+
+.eventItem:hover {
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.1);
+}
+
+.eventMeta {
+  font-size: 10px;
+  font-weight: 800;
+  color: #6b7280;
+  margin-bottom: 2px;
+}
+
+.eventTitle {
+  font-size: 11px;
+  font-weight: 600;
+  word-break: break-all;
+}
+
+.notesHead {
+  background: #f3f4f6;
+  font-weight: 900;
+  text-align: center;
+}
+
+.notesBody {
+  background: #fffbeb;
+  min-height: 140px;
+}
+
+/* 週末・当日 */
+.isWeekend {
+  background: #fef2f2;
+}
+
+.isSunday .dayHead,
+.isSunday .wdayHead {
+  color: #dc2626;
+}
+
+.isSaturday .dayHead,
+.isSaturday .wdayHead {
+  color: #2563eb;
+}
+
+.isToday {
+  outline: 3px solid #3b82f6;
+  outline-offset: -3px;
+  background: #eff6ff !important;
+}
+
+/* =============================================================================
+   モーダル
+   ============================================================================= */
+.modal,
+.drawer {
+  display: none;
+}
+
+.modal[aria-hidden="false"],
+.drawer[aria-hidden="false"] {
+  display: block;
+}
+
+.modal__backdrop,
+.drawer__backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 20;
+}
+
+.modal__panel {
+  position: fixed;
+  inset: auto 0 0 0;
+  max-width: 640px;
+  max-height: 90vh;
+  margin: 0 auto;
+  background: #0f172a;
+  color: var(--text);
+  border-radius: 18px 18px 0 0;
+  border: 1px solid var(--border);
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+}
+
+.modal__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal__title {
+  font-weight: 900;
+  font-size: 1.1rem;
+}
+
+.modal__body {
+  padding: 16px;
+  overflow-y: auto;
+  flex: 1;
+}
+
+.modal__footer {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+}
+
+.spacer {
+  flex: 1;
+}
+
+/* =============================================================================
+   フォーム
+   ============================================================================= */
+.formRow {
+  margin-bottom: 14px;
+}
+
+.formRow label {
+  display: block;
+  font-size: 12px;
+  color: #94a3b8;
+  margin-bottom: 6px;
+  font-weight: 600;
+}
+
+.formRow .required {
+  color: var(--danger);
+}
+
+.formRow input,
+.formRow select,
+.formRow textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid #334155;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 14px;
+  font-family: inherit;
+}
+
+.formRow input:focus,
+.formRow select:focus,
+.formRow textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.formRow input:disabled,
+.formRow select:disabled,
+.formRow textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.formRow.two {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.editHint {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 8px 0;
+}
+
+.editHint.warning {
+  color: #f59e0b;
+}
+
+/* =============================================================================
+   ドロワー（過去一覧）
+   ============================================================================= */
+.drawer__panel {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: min(860px, 94vw);
+  background: #0f172a;
+  color: var(--text);
+  border-left: 1px solid var(--border);
+  z-index: 21;
+  display: flex;
+  flex-direction: column;
+}
+
+.drawer__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.drawer__title {
+  font-weight: 900;
+  font-size: 1.1rem;
+}
+
+.drawer__body {
+  padding: 16px;
+  overflow: auto;
+  flex: 1;
+}
+
+.archive-controls {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.archive-controls label {
+  margin-bottom: 0;
+}
+
+.archive-controls input {
+  width: auto;
+  min-width: 160px;
+}
+
+.tableWrap {
+  margin-top: 16px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+.tbl {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.tbl th,
+.tbl td {
+  border-bottom: 1px solid var(--border);
+  padding: 10px 12px;
+  text-align: left;
+}
+
+.tbl th {
+  position: sticky;
+  top: 0;
+  background: #111827;
+  font-weight: 700;
+}
+
+.tbl tbody tr:hover {
+  background: #1e293b;
+}
+
+/* =============================================================================
+   ローディング
+   ============================================================================= */
+.loading {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.7);
+  z-index: 100;
+  justify-content: center;
+  align-items: center;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.loading[aria-hidden="false"] {
+  display: flex;
+}
+
+.loading__spinner {
+  width: 48px;
+  height: 48px;
+  border: 4px solid #334155;
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.loading__text {
+  font-size: 14px;
+  color: var(--text);
+}
+
+/* =============================================================================
+   レスポンシブ
+   ============================================================================= */
+@media (max-width: 768px) {
+  .topbar {
+    flex-direction: column;
+    gap: 12px;
+    align-items: flex-start;
+  }
+
+  .topbar__right {
+    width: 100%;
+  }
+
+  .controls {
+    flex-direction: column;
+  }
+
+  .control {
+    min-width: 100%;
+  }
+
+  .formRow.two {
+    grid-template-columns: 1fr;
+  }
+}
+</style>

@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <base target="_top">
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>２ヶ月スケジュール（ホワイトボード形式）</title>
+  <?!= include_('styles'); ?>
+</head>
+<body>
+  <!-- ヘッダー -->
+  <header class="topbar">
+    <div>
+      <div class="app-title">２ヶ月スケジュール（ホワイトボード形式）</div>
+      <div class="subtle" id="userBadge">読み込み中…</div>
+    </div>
+    <div class="topbar__right">
+      <button class="btn" id="reloadBtn" type="button">再読込</button>
+      <button class="btn btn--ghost" id="archiveBtn" type="button">過去一覧</button>
+    </div>
+  </header>
+
+  <!-- メインコンテンツ -->
+  <main class="container">
+    <!-- コントロール情報 -->
+    <section class="controls">
+      <div class="control">
+        <div class="label">表示基準月</div>
+        <div class="value" id="baseMonth">—</div>
+      </div>
+      <div class="control">
+        <div class="label">編集可能期間</div>
+        <div class="value" id="editableRange">—</div>
+      </div>
+      <div class="control">
+        <div class="label">権限</div>
+        <div class="value" id="role">—</div>
+      </div>
+    </section>
+
+    <!-- ホワイトボード -->
+    <section class="board">
+      <div class="board__sectionTitle">上段：当月</div>
+      <div class="monthGrid" id="grid1"></div>
+
+      <div class="board__sectionTitle board__sectionTitle--spaced">下段：翌月</div>
+      <div class="monthGrid" id="grid2"></div>
+    </section>
+  </main>
+
+  <!-- 予定追加・編集モーダル -->
+  <div class="modal" id="modal" aria-hidden="true">
+    <div class="modal__backdrop" id="modalBackdrop"></div>
+    <div class="modal__panel">
+      <div class="modal__header">
+        <div class="modal__title" id="modalTitle">予定</div>
+        <button class="iconBtn" id="modalClose" type="button" aria-label="閉じる">×</button>
+      </div>
+
+      <div class="modal__body">
+        <div class="formRow">
+          <label for="f_date">日付 <span class="required">*</span></label>
+          <input id="f_date" type="date" required />
+        </div>
+        <div class="formRow two">
+          <div>
+            <label for="f_start">開始時刻</label>
+            <input id="f_start" type="time" />
+          </div>
+          <div>
+            <label for="f_end">終了時刻</label>
+            <input id="f_end" type="time" />
+          </div>
+        </div>
+        <div class="formRow">
+          <label for="f_type">予定種別 <span class="required">*</span></label>
+          <select id="f_type" required></select>
+        </div>
+        <div class="formRow">
+          <label for="f_title">件名 <span class="required">*</span></label>
+          <input id="f_title" type="text" maxlength="100" required />
+        </div>
+        <div class="formRow">
+          <label for="f_location">場所</label>
+          <input id="f_location" type="text" maxlength="100" />
+        </div>
+        <div class="formRow">
+          <label for="f_memo">メモ</label>
+          <textarea id="f_memo" rows="3" maxlength="500"></textarea>
+        </div>
+        <div class="formRow two">
+          <div>
+            <label for="f_order">表示順（任意）</label>
+            <input id="f_order" type="number" min="0" step="1" />
+          </div>
+          <div>
+            <label for="f_status">状態</label>
+            <select id="f_status"></select>
+          </div>
+        </div>
+        <div class="editHint" id="editHint"></div>
+      </div>
+
+      <div class="modal__footer">
+        <button class="btn btn--danger" id="deleteBtn" type="button">削除</button>
+        <div class="spacer"></div>
+        <button class="btn btn--ghost" id="cancelBtn" type="button">キャンセル</button>
+        <button class="btn btn--primary" id="saveBtn" type="button">保存</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 過去一覧ドロワー（閲覧のみ） -->
+  <div class="drawer" id="drawer" aria-hidden="true">
+    <div class="drawer__backdrop" id="drawerBackdrop"></div>
+    <div class="drawer__panel">
+      <div class="drawer__header">
+        <div class="drawer__title">過去一覧（閲覧のみ）</div>
+        <button class="iconBtn" id="drawerClose" type="button" aria-label="閉じる">×</button>
+      </div>
+      <div class="drawer__body">
+        <div class="formRow archive-controls">
+          <label for="archiveMonth">月を選択</label>
+          <input id="archiveMonth" type="month" />
+          <button class="btn" id="archiveLoad" type="button">読み込み</button>
+        </div>
+        <div class="tableWrap">
+          <table class="tbl" id="archiveTable">
+            <thead>
+              <tr>
+                <th>日付</th>
+                <th>時刻</th>
+                <th>種別</th>
+                <th>件名</th>
+                <th>場所</th>
+                <th>状態</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ローディングオーバーレイ -->
+  <div class="loading" id="loading" aria-hidden="true">
+    <div class="loading__spinner"></div>
+    <div class="loading__text">読み込み中...</div>
+  </div>
+
+  <?!= include_('app'); ?>
+</body>
+</html>

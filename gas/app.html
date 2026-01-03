@@ -1,0 +1,638 @@
+<script>
+/**
+ * 2ヶ月スケジュール（ホワイトボード形式）- フロントエンドJavaScript
+ */
+
+// =============================================================================
+// 状態管理
+// =============================================================================
+const STATE = {
+  user: null,
+  settings: null,
+  masters: null,
+  range: null,
+  events: [],
+  eventById: new Map()
+};
+
+// モーダル状態
+let MODAL_MODE = 'create'; // 'create' | 'edit'
+let CURRENT_EVENT_ID = null;
+
+// =============================================================================
+// ユーティリティ
+// =============================================================================
+
+/** 要素取得 */
+const el = (id) => document.getElementById(id);
+
+/** 日付をYYYY-MM-DD形式に */
+function ymd(d) {
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+/** 月を加算 */
+function addMonths(dt, n) {
+  const d = new Date(dt);
+  d.setMonth(d.getMonth() + n);
+  return d;
+}
+
+/** 月末日を取得 */
+function endOfMonth(dt) {
+  return new Date(dt.getFullYear(), dt.getMonth() + 1, 0);
+}
+
+/** 曜日（日本語） */
+function wdayJa(dt) {
+  return ['日', '月', '火', '水', '木', '金', '土'][dt.getDay()];
+}
+
+/** 今日かどうか */
+function isToday(dt) {
+  const now = new Date();
+  return dt.getFullYear() === now.getFullYear() &&
+         dt.getMonth() === now.getMonth() &&
+         dt.getDate() === now.getDate();
+}
+
+/** HTMLエスケープ */
+function esc(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+/** 種別から色を取得 */
+function typeColor(code) {
+  const t = (STATE.masters?.types || []).find(x => x.code === code);
+  return t ? t.color : '#374151';
+}
+
+/** 種別ラベルを取得 */
+function typeLabel(code) {
+  const t = (STATE.masters?.types || []).find(x => x.code === code);
+  return t ? t.label : code;
+}
+
+/** ステータスラベルを取得 */
+function statusLabel(code) {
+  const s = (STATE.masters?.statuses || []).find(x => x.code === code);
+  return s ? s.label : code;
+}
+
+// =============================================================================
+// GAS通信
+// =============================================================================
+
+function showLoading(show) {
+  el('loading').setAttribute('aria-hidden', show ? 'false' : 'true');
+}
+
+function gas(method, ...args) {
+  return new Promise((resolve, reject) => {
+    google.script.run
+      .withSuccessHandler(resolve)
+      .withFailureHandler(reject)
+      [method](...args);
+  });
+}
+
+// =============================================================================
+// 初期化
+// =============================================================================
+
+async function boot() {
+  showLoading(true);
+  try {
+    const res = await gas('getBootstrap');
+
+    if (!res.ok) {
+      alert('読み込みに失敗しました: ' + (res.error || '不明なエラー'));
+      return;
+    }
+
+    STATE.user = res.user;
+    STATE.settings = res.settings;
+    STATE.masters = res.masters;
+    STATE.range = res.range;
+    STATE.events = res.events || [];
+    STATE.eventById = new Map(STATE.events.map(e => [e.event_id, e]));
+
+    renderHeader();
+    renderBoards();
+    setupModalMasters();
+
+    console.log('Bootstrap completed:', STATE);
+  } catch (e) {
+    console.error('Boot error:', e);
+    alert('読み込みエラー: ' + e.message);
+  } finally {
+    showLoading(false);
+  }
+}
+
+// =============================================================================
+// ヘッダー描画
+// =============================================================================
+
+function renderHeader() {
+  el('userBadge').textContent = STATE.user.email
+    ? `ログイン: ${STATE.user.email}`
+    : '未ログイン（閲覧のみ）';
+
+  el('baseMonth').textContent = STATE.settings.baseMonth;
+  el('editableRange').textContent = `${STATE.range.fromISO} 〜 ${STATE.range.toISO}`;
+
+  const roleLabels = {
+    viewer: '閲覧のみ',
+    editor: '編集可（直近2ヶ月）',
+    admin: '管理者'
+  };
+  el('role').textContent = roleLabels[STATE.user.role] || STATE.user.role;
+}
+
+// =============================================================================
+// ホワイトボード描画
+// =============================================================================
+
+function renderBoards() {
+  const [y, m] = STATE.settings.baseMonth.split('-').map(Number);
+  const base = new Date(y, m - 1, 1);
+
+  renderMonthGrid(el('grid1'), base);
+  renderMonthGrid(el('grid2'), addMonths(base, 1));
+}
+
+function renderMonthGrid(container, monthStart) {
+  container.innerHTML = '';
+
+  const daysInMonth = endOfMonth(monthStart).getDate();
+  const monthLabel = `${monthStart.getMonth() + 1}月`;
+
+  // ヘッダー行（日付）
+  container.appendChild(buildHeaderRow(monthLabel, monthStart, daysInMonth, true));
+  // ヘッダー行（曜日）
+  container.appendChild(buildHeaderRow('', monthStart, daysInMonth, false));
+  // イベント行
+  container.appendChild(buildEventsRow(monthStart, daysInMonth));
+}
+
+function buildHeaderRow(monthLabel, monthStart, daysInMonth, isDayRow) {
+  const row = document.createElement('div');
+  row.className = 'gridRow';
+
+  // 月ラベルセル
+  const monthCell = document.createElement('div');
+  monthCell.className = 'cell monthLabel';
+  if (isDayRow) {
+    monthCell.textContent = monthLabel;
+    monthCell.setAttribute('rowspan', '3');
+  }
+  row.appendChild(monthCell);
+
+  // 1〜31日
+  for (let day = 1; day <= 31; day++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell ' + (isDayRow ? 'dayHead' : 'wdayHead');
+
+    if (day <= daysInMonth) {
+      const dt = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
+      const dayOfWeek = dt.getDay();
+
+      cell.textContent = isDayRow ? String(day) : wdayJa(dt);
+
+      // 週末クラス
+      if (dayOfWeek === 0) {
+        cell.classList.add('isWeekend');
+        cell.parentElement?.classList.add('isSunday');
+        cell.classList.add('isSunday');
+      } else if (dayOfWeek === 6) {
+        cell.classList.add('isWeekend');
+        cell.classList.add('isSaturday');
+      }
+
+      // 今日
+      if (isToday(dt)) {
+        cell.classList.add('isToday');
+      }
+    }
+
+    row.appendChild(cell);
+  }
+
+  // 備考ヘッダー
+  const notes = document.createElement('div');
+  notes.className = 'cell notesHead';
+  notes.textContent = isDayRow ? '備考' : '';
+  row.appendChild(notes);
+
+  return row;
+}
+
+function buildEventsRow(monthStart, daysInMonth) {
+  const row = document.createElement('div');
+  row.className = 'gridRow';
+
+  // 月ラベルセル（空）
+  const monthCell = document.createElement('div');
+  monthCell.className = 'cell monthLabel';
+  row.appendChild(monthCell);
+
+  // 1〜31日のイベントセル
+  for (let day = 1; day <= 31; day++) {
+    const cell = document.createElement('div');
+    cell.className = 'cell eventsCell';
+
+    if (day <= daysInMonth) {
+      const dt = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
+      const iso = ymd(dt);
+      const dayOfWeek = dt.getDay();
+
+      // 週末・今日のスタイル
+      if (dayOfWeek === 0 || dayOfWeek === 6) {
+        cell.classList.add('isWeekend');
+      }
+      if (isToday(dt)) {
+        cell.classList.add('isToday');
+      }
+
+      // 編集可能かどうか
+      const canEditDate = isDateEditable(iso);
+      const canEditRole = STATE.user.role === 'editor' || STATE.user.role === 'admin';
+      const canEdit = canEditDate && canEditRole;
+
+      if (!canEdit) {
+        cell.classList.add('not-editable');
+      }
+
+      // セルクリック → 新規作成
+      cell.addEventListener('click', (ev) => {
+        if (ev.target.classList.contains('eventItem')) return;
+        if (canEdit) {
+          openCreateModal(iso);
+        }
+      });
+
+      // その日のイベントを表示
+      const dayEvents = STATE.events.filter(e => e.date === iso);
+      for (const e of dayEvents) {
+        const item = document.createElement('div');
+        item.className = 'eventItem';
+        item.style.borderLeftColor = typeColor(e.type);
+
+        const timeStr = e.start_time ? e.start_time + ' ' : '';
+        item.innerHTML = `
+          <div class="eventMeta">${esc(timeStr)}[${esc(typeLabel(e.type))}]</div>
+          <div class="eventTitle">${esc(e.title || '')}</div>
+        `;
+
+        // イベントクリック → 編集
+        item.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          openEditModal(e.event_id);
+        });
+
+        cell.appendChild(item);
+      }
+    }
+
+    row.appendChild(cell);
+  }
+
+  // 備考セル
+  const notes = document.createElement('div');
+  notes.className = 'cell notesBody';
+  row.appendChild(notes);
+
+  return row;
+}
+
+/** 日付が編集可能期間内かどうか */
+function isDateEditable(isoDate) {
+  if (!STATE.range) return false;
+  return isoDate >= STATE.range.fromISO && isoDate <= STATE.range.toISO;
+}
+
+// =============================================================================
+// モーダル
+// =============================================================================
+
+function setupModalMasters() {
+  // 予定種別セレクト
+  const typeSel = el('f_type');
+  typeSel.innerHTML = '';
+  for (const t of (STATE.masters.types || [])) {
+    const o = document.createElement('option');
+    o.value = t.code;
+    o.textContent = `${t.label}（${t.code}）`;
+    typeSel.appendChild(o);
+  }
+
+  // 状態セレクト
+  const statusSel = el('f_status');
+  statusSel.innerHTML = '';
+  for (const s of (STATE.masters.statuses || [])) {
+    const o = document.createElement('option');
+    o.value = s.code;
+    o.textContent = `${s.label}（${s.code}）`;
+    statusSel.appendChild(o);
+  }
+}
+
+function openModal(open) {
+  el('modal').setAttribute('aria-hidden', open ? 'false' : 'true');
+  if (open) {
+    el('f_title').focus();
+  }
+}
+
+function applyEditability(dateISO) {
+  const canRole = STATE.user.role === 'editor' || STATE.user.role === 'admin';
+  const canDate = isDateEditable(dateISO);
+  const canEdit = canRole && canDate;
+
+  const fields = ['f_date', 'f_start', 'f_end', 'f_type', 'f_title', 'f_location', 'f_memo', 'f_order', 'f_status'];
+  fields.forEach(id => {
+    el(id).disabled = !canEdit;
+  });
+
+  el('saveBtn').disabled = !canEdit;
+  el('deleteBtn').disabled = !canEdit;
+
+  const hint = el('editHint');
+  if (canEdit) {
+    hint.textContent = 'この期間は編集できます。';
+    hint.className = 'editHint';
+  } else if (!canRole) {
+    hint.textContent = '閲覧権限のため編集できません。';
+    hint.className = 'editHint warning';
+  } else {
+    hint.textContent = '編集可能期間外のため編集できません。';
+    hint.className = 'editHint warning';
+  }
+}
+
+function fillForm(e) {
+  el('f_date').value = e.date || '';
+  el('f_start').value = e.start_time || '';
+  el('f_end').value = e.end_time || '';
+  el('f_type').value = e.type || (STATE.masters.types?.[0]?.code || '');
+  el('f_title').value = e.title || '';
+  el('f_location').value = e.location || '';
+  el('f_memo').value = e.memo || '';
+  el('f_order').value = (e.display_order ?? '') === '' ? '' : e.display_order;
+  el('f_status').value = e.status || 'CONFIRMED';
+}
+
+function getPayload() {
+  return {
+    event_id: CURRENT_EVENT_ID || undefined,
+    date: el('f_date').value,
+    start_time: el('f_start').value,
+    end_time: el('f_end').value,
+    type: el('f_type').value,
+    title: el('f_title').value,
+    location: el('f_location').value,
+    memo: el('f_memo').value,
+    display_order: el('f_order').value !== '' ? Number(el('f_order').value) : '',
+    status: el('f_status').value
+  };
+}
+
+function openCreateModal(dateISO) {
+  MODAL_MODE = 'create';
+  CURRENT_EVENT_ID = null;
+
+  el('modalTitle').textContent = '予定追加';
+  el('deleteBtn').style.display = 'none';
+
+  fillForm({
+    date: dateISO,
+    start_time: '',
+    end_time: '',
+    type: STATE.masters.types?.[0]?.code || '',
+    title: '',
+    location: '',
+    memo: '',
+    display_order: '',
+    status: 'CONFIRMED'
+  });
+
+  applyEditability(dateISO);
+  openModal(true);
+}
+
+function openEditModal(id) {
+  MODAL_MODE = 'edit';
+  CURRENT_EVENT_ID = id;
+
+  const e = STATE.eventById.get(id);
+  if (!e) return;
+
+  el('modalTitle').textContent = '予定編集';
+  el('deleteBtn').style.display = 'inline-block';
+
+  fillForm(e);
+  applyEditability(e.date);
+  openModal(true);
+}
+
+// =============================================================================
+// CRUD操作
+// =============================================================================
+
+async function refresh() {
+  showLoading(true);
+  try {
+    const res = await gas('listEvents', STATE.range.fromISO, STATE.range.toISO);
+    if (!res.ok) {
+      alert('再取得失敗: ' + (res.error || ''));
+      return;
+    }
+    STATE.events = res.events || [];
+    STATE.eventById = new Map(STATE.events.map(e => [e.event_id, e]));
+    renderBoards();
+  } catch (e) {
+    console.error('Refresh error:', e);
+    alert('再取得エラー: ' + e.message);
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function onSave() {
+  const payload = getPayload();
+
+  // クライアント側バリデーション（最低限）
+  if (!payload.date) {
+    alert('日付を入力してください');
+    return;
+  }
+  if (!payload.type) {
+    alert('予定種別を選択してください');
+    return;
+  }
+  if (!payload.title.trim()) {
+    alert('件名を入力してください');
+    return;
+  }
+
+  showLoading(true);
+  try {
+    let res;
+    if (MODAL_MODE === 'create') {
+      res = await gas('createEvent', payload);
+    } else {
+      res = await gas('updateEvent', CURRENT_EVENT_ID, payload);
+    }
+
+    if (!res.ok) {
+      const errorMessages = {
+        'AUTH_REQUIRED': '認証が必要です。ログインしてください。',
+        'FORBIDDEN': '編集権限がありません。',
+        'OUT_OF_EDITABLE_RANGE': '編集可能期間外です。',
+        'INVALID_DATE': '日付の形式が不正です。',
+        'TYPE_REQUIRED': '予定種別を選択してください。',
+        'TITLE_REQUIRED': '件名を入力してください。',
+        'NOT_FOUND': '予定が見つかりません。'
+      };
+      const msg = errorMessages[res.error] || res.error || '保存に失敗しました';
+      alert(msg);
+      return;
+    }
+
+    await refresh();
+    openModal(false);
+  } catch (e) {
+    console.error('Save error:', e);
+    alert('保存エラー: ' + e.message);
+  } finally {
+    showLoading(false);
+  }
+}
+
+async function onDelete() {
+  if (!CURRENT_EVENT_ID) return;
+
+  if (!confirm('この予定を削除しますか？')) return;
+
+  showLoading(true);
+  try {
+    const res = await gas('deleteEvent', CURRENT_EVENT_ID);
+
+    if (!res.ok) {
+      const errorMessages = {
+        'AUTH_REQUIRED': '認証が必要です。',
+        'FORBIDDEN': '削除権限がありません。',
+        'OUT_OF_EDITABLE_RANGE': '編集可能期間外です。',
+        'NOT_FOUND': '予定が見つかりません。'
+      };
+      const msg = errorMessages[res.error] || res.error || '削除に失敗しました';
+      alert(msg);
+      return;
+    }
+
+    await refresh();
+    openModal(false);
+  } catch (e) {
+    console.error('Delete error:', e);
+    alert('削除エラー: ' + e.message);
+  } finally {
+    showLoading(false);
+  }
+}
+
+// =============================================================================
+// 過去一覧（ドロワー）
+// =============================================================================
+
+function openDrawer(open) {
+  el('drawer').setAttribute('aria-hidden', open ? 'false' : 'true');
+}
+
+async function loadArchive() {
+  const m = el('archiveMonth').value;
+  if (!m) {
+    alert('月を選択してください');
+    return;
+  }
+
+  showLoading(true);
+  try {
+    const res = await gas('listArchive', m);
+
+    if (!res.ok) {
+      alert('取得失敗: ' + (res.error || ''));
+      return;
+    }
+
+    const tbody = el('archiveTable').querySelector('tbody');
+    tbody.innerHTML = '';
+
+    if (res.events.length === 0) {
+      const tr = document.createElement('tr');
+      tr.innerHTML = '<td colspan="6" style="text-align:center;color:#6b7280;">予定がありません</td>';
+      tbody.appendChild(tr);
+      return;
+    }
+
+    for (const e of res.events) {
+      const tr = document.createElement('tr');
+      const timeRange = e.start_time
+        ? (e.end_time ? `${e.start_time}–${e.end_time}` : e.start_time)
+        : '';
+      tr.innerHTML = `
+        <td>${esc(e.date)}</td>
+        <td>${esc(timeRange)}</td>
+        <td>${esc(typeLabel(e.type))}</td>
+        <td>${esc(e.title || '')}</td>
+        <td>${esc(e.location || '')}</td>
+        <td>${esc(statusLabel(e.status))}</td>
+      `;
+      tbody.appendChild(tr);
+    }
+  } catch (e) {
+    console.error('Archive error:', e);
+    alert('取得エラー: ' + e.message);
+  } finally {
+    showLoading(false);
+  }
+}
+
+// =============================================================================
+// イベントハンドラ設定
+// =============================================================================
+
+document.addEventListener('DOMContentLoaded', () => {
+  // ヘッダー
+  el('reloadBtn').addEventListener('click', boot);
+  el('archiveBtn').addEventListener('click', () => openDrawer(true));
+
+  // モーダル
+  el('modalClose').addEventListener('click', () => openModal(false));
+  el('cancelBtn').addEventListener('click', () => openModal(false));
+  el('modalBackdrop').addEventListener('click', () => openModal(false));
+  el('saveBtn').addEventListener('click', onSave);
+  el('deleteBtn').addEventListener('click', onDelete);
+
+  // 日付変更時に編集可否を再評価
+  el('f_date').addEventListener('change', () => {
+    applyEditability(el('f_date').value);
+  });
+
+  // ドロワー
+  el('drawerClose').addEventListener('click', () => openDrawer(false));
+  el('drawerBackdrop').addEventListener('click', () => openDrawer(false));
+  el('archiveLoad').addEventListener('click', loadArchive);
+
+  // 初期化
+  boot();
+});
+</script>
