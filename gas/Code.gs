@@ -373,11 +373,16 @@ function createEvent(payload) {
     const tz = settings.tz;
     const eventId = payload.event_id ? String(payload.event_id).trim() : Utilities.getUuid();
 
-    sh.appendRow([
+    // 時刻は明示的にテキストとして保存（タイムゾーン変換を防ぐ）
+    const startTimeText = payload.start_time ? String(payload.start_time) : '';
+    const endTimeText = payload.end_time ? String(payload.end_time) : '';
+
+    const newRow = sh.getLastRow() + 1;
+    sh.getRange(newRow, 1, 1, 15).setValues([[
       eventId,
       new Date(payload.date + 'T00:00:00'),
-      payload.start_time || '',
-      payload.end_time || '',
+      startTimeText,
+      endTimeText,
       payload.type || '',
       payload.title || '',
       payload.location || '',
@@ -388,8 +393,11 @@ function createEvent(payload) {
       Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
       user.email,
       Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
-      user.email
-    ]);
+      user.email,
+      ''
+    ]]);
+    // 時刻列（C, D）をテキスト形式に設定
+    sh.getRange(newRow, 3, 1, 2).setNumberFormat('@');
 
     return { ok: true, event_id: eventId };
   } catch (e) {
@@ -440,11 +448,15 @@ function updateEvent(eventId, payload) {
     const createdAt = sh.getRange(rowNum, 12).getValue();
     const createdBy = sh.getRange(rowNum, 13).getValue();
 
+    // 時刻は明示的にテキストとして保存（タイムゾーン変換を防ぐ）
+    const startTimeText = payload.start_time ? String(payload.start_time) : '';
+    const endTimeText = payload.end_time ? String(payload.end_time) : '';
+
     sh.getRange(rowNum, 1, 1, 15).setValues([[
       String(eventId),
       new Date(payload.date + 'T00:00:00'),
-      payload.start_time || '',
-      payload.end_time || '',
+      startTimeText,
+      endTimeText,
       payload.type || '',
       payload.title || '',
       payload.location || '',
@@ -457,6 +469,8 @@ function updateEvent(eventId, payload) {
       Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
       user.email
     ]]);
+    // 時刻列（C, D）をテキスト形式に設定
+    sh.getRange(rowNum, 3, 1, 2).setNumberFormat('@');
 
     return { ok: true };
   } catch (e) {
