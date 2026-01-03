@@ -110,11 +110,12 @@
   }
   .iconBtn:hover{background:var(--soft);}
 
-  /* Calendar area maximize: minimal padding */
+  /* Calendar area: horizontal scroll when needed */
   .container{
     padding:6px 8px 12px;
-    max-width: 1600px;
+    max-width: 100%;
     margin:0 auto;
+    overflow-x: auto;
   }
 
   .board{
@@ -131,15 +132,16 @@
   /* Month grid (Whiteboard style) - 3行統合構造、2ヶ月1画面 */
   .monthGrid{
     display: grid;
-    /* 月ラベル(64px) + 31日 + 備考(88px) */
-    grid-template-columns: 64px repeat(31, minmax(28px, 1fr)) 88px;
-    grid-template-rows: auto auto minmax(120px, auto);
+    /* 月ラベル(56px) + 31日(内容に応じて拡張) + 備考(80px) */
+    grid-template-columns: 56px repeat(31, minmax(32px, auto)) 80px;
+    grid-template-rows: auto auto minmax(100px, auto);
     background: var(--surface);
     border-radius: 16px;
     color: var(--text);
     border: 1px solid var(--line);
     box-shadow: 0 1px 0 rgba(15,23,42,.04);
-    min-width: 1180px;
+    width: max-content;
+    min-width: 100%;
   }
 
   /* 月ラベル：3行統合（grid-row span 3） */
@@ -194,6 +196,15 @@
     justify-content: center;
   }
 
+  /* クリック可能なヘッダー（予定追加） */
+  .dayHead.clickable, .wdayHead.clickable{
+    cursor: pointer;
+    transition: background 0.1s;
+  }
+  .dayHead.clickable:hover, .wdayHead.clickable:hover{
+    background: var(--today);
+  }
+
   /* 備考ヘッダー（1-2行統合） */
   .notesHead{
     grid-column: 33;
@@ -208,16 +219,17 @@
     border-bottom: 1px solid var(--line);
   }
 
-  /* 予定セル（3行目）- 内容に応じた可変高さ */
+  /* 予定セル（3行目）- 内容に応じた可変高さ・幅 */
   .eventsCell{
     grid-row: 3;
-    min-height: 120px;
+    min-height: 100px;
+    min-width: 32px;
     cursor: pointer;
     background: #fff;
     padding: 0;
     transition: background 0.1s;
     overflow-y: auto;
-    overflow-x: hidden;
+    overflow-x: visible;
   }
   .eventsCell:hover{ background: #f9fbff; }
   .eventsCell.not-editable{ cursor: default; background: #fafafa; }
@@ -227,32 +239,34 @@
      !important で旧CSS強制上書き
      ======================================== */
 
-  /* 予定欄：セル全面を使用、横並び */
+  /* 予定欄：横並び、予定数に応じてセル幅拡張 */
   .dayEvents{
     display: flex !important;
     flex-direction: row !important;
     justify-content: flex-start !important;
     align-items: flex-start !important;
-    width: 100% !important;
-    padding: 3px 2px !important;
-    gap: 3px !important;
+    width: max-content !important;
+    min-width: 100% !important;
+    padding: 2px 1px !important;
+    gap: 2px !important;
   }
 
-  /* 予定1本：枠なし・背景なし・セル直書きテキスト */
+  /* 予定1本：縦書きテキスト */
   .eventText{
     writing-mode: vertical-rl !important;
     text-orientation: mixed !important;
     transform: none !important;
     width: auto !important;
-    min-width: 0 !important;
+    min-width: 18px !important;
     height: auto !important;
     border: none !important;
     border-radius: 0 !important;
     background: transparent !important;
-    padding: 6px 1px 4px 1px !important;
+    padding: 5px 1px 3px 1px !important;
     overflow: visible !important;
     cursor: pointer !important;
     position: relative !important;
+    flex-shrink: 0 !important;
   }
   /* 種別色：上部の帽子（横線） */
   .eventText::before{

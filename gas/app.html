@@ -283,6 +283,7 @@ function renderMonthGrid(container, monthStart) {
 
     if (day <= daysInMonth) {
       const dt = new Date(monthStart.getFullYear(), monthStart.getMonth(), day);
+      const iso = ymd(dt);
       const dayOfWeek = dt.getDay();
 
       dayHead.textContent = String(day);
@@ -301,6 +302,19 @@ function renderMonthGrid(container, monthStart) {
       if (isToday(dt)) {
         dayHead.classList.add('isToday');
         wdayHead.classList.add('isToday');
+      }
+
+      // 編集可能かどうか
+      const canEditDate = isDateEditable(iso);
+      const canEditRole = STATE.user.role === 'editor' || STATE.user.role === 'admin';
+      const canEdit = canEditDate && canEditRole;
+
+      // 日付・曜日ヘッダークリック → 新規作成
+      if (canEdit) {
+        dayHead.classList.add('clickable');
+        wdayHead.classList.add('clickable');
+        dayHead.addEventListener('click', () => openCreateModal(iso));
+        wdayHead.addEventListener('click', () => openCreateModal(iso));
       }
     }
 
