@@ -20,6 +20,10 @@ const STATE = {
 let MODAL_MODE = 'create'; // 'create' | 'edit'
 let CURRENT_EVENT_ID = null;
 
+// 保存キュー（バックグラウンド保存用）
+const SAVE_QUEUE = [];
+let IS_SAVING = false;
+
 // =============================================================================
 // ユーティリティ
 // =============================================================================
@@ -186,6 +190,135 @@ function gas(method, ...args) {
       .withFailureHandler(reject)
       [method](...args);
   });
+}
+
+// =============================================================================
+// トースト通知
+// =============================================================================
+
+function showToast(message, type = 'info', duration = 4000) {
+  const container = el('toastContainer');
+  if (!container) return;
+
+  const icons = {
+    success: '✓',
+    error: '✗',
+    warning: '⚠',
+    info: 'ℹ'
+  };
+
+  const toast = document.createElement('div');
+  toast.className = `toast toast--${type}`;
+  toast.innerHTML = `
+    <span class="toast__icon">${icons[type] || icons.info}</span>
+    <span class="toast__message">${esc(message)}</span>
+    <button class="toast__close" type="button">×</button>
+  `;
+
+  // 閉じるボタン
+  toast.querySelector('.toast__close').addEventListener('click', () => {
+    removeToast(toast);
+  });
+
+  container.appendChild(toast);
+
+  // 自動削除
+  if (duration > 0) {
+    setTimeout(() => removeToast(toast), duration);
+  }
+
+  return toast;
+}
+
+function removeToast(toast) {
+  if (!toast || !toast.parentNode) return;
+  toast.classList.add('hiding');
+  setTimeout(() => toast.remove(), 200);
+}
+
+// =============================================================================
+// 仮ID生成
+// =============================================================================
+
+function generateTempId() {
+  return 'tmp-' + crypto.randomUUID();
+}
+
+// =============================================================================
+// 楽観的UI更新
+// =============================================================================
+
+function addEventToUI(event) {
+  STATE.events.push(event);
+  STATE.eventById.set(event.event_id, event);
+  // 並び替え
+  STATE.events.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    const at = a.start_time || '99:99';
+    const bt = b.start_time || '99:99';
+    if (at !== bt) return at < bt ? -1 : 1;
+    return (a.display_order || 0) - (b.display_order || 0);
+  });
+  renderBoards();
+}
+
+function updateEventInUI(eventId, updates) {
+  const event = STATE.eventById.get(eventId);
+  if (!event) return;
+  Object.assign(event, updates);
+  // 並び替え
+  STATE.events.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    const at = a.start_time || '99:99';
+    const bt = b.start_time || '99:99';
+    if (at !== bt) return at < bt ? -1 : 1;
+    return (a.display_order || 0) - (b.display_order || 0);
+  });
+  renderBoards();
+}
+
+function removeEventFromUI(eventId) {
+  STATE.events = STATE.events.filter(e => e.event_id !== eventId);
+  STATE.eventById.delete(eventId);
+  renderBoards();
+}
+
+function replaceEventId(oldId, newId) {
+  const event = STATE.eventById.get(oldId);
+  if (!event) return;
+  STATE.eventById.delete(oldId);
+  event.event_id = newId;
+  STATE.eventById.set(newId, event);
+}
+
+// =============================================================================
+// バックグラウンド保存キュー
+// =============================================================================
+
+function enqueueSave(task) {
+  SAVE_QUEUE.push(task);
+  processQueue();
+}
+
+async function processQueue() {
+  if (IS_SAVING || SAVE_QUEUE.length === 0) return;
+
+  IS_SAVING = true;
+  const task = SAVE_QUEUE.shift();
+
+  try {
+    await task.execute();
+  } catch (e) {
+    console.error('Background save error:', e);
+    if (task.onError) task.onError(e);
+  }
+
+  IS_SAVING = false;
+
+  // 次のタスクがあれば処理
+  if (SAVE_QUEUE.length > 0) {
+    setTimeout(processQueue, 100);
+  }
 }
 
 // =============================================================================
@@ -589,7 +722,7 @@ async function refresh() {
   }
 }
 
-async function onSave() {
+function onSave() {
   const payload = getPayload();
 
   // クライアント側バリデーション（最低限）
@@ -606,69 +739,145 @@ async function onSave() {
     return;
   }
 
-  showLoading(true);
-  try {
-    let res;
-    if (MODAL_MODE === 'create') {
-      res = await gas('createEvent', payload);
-    } else {
-      res = await gas('updateEvent', CURRENT_EVENT_ID, payload);
-    }
+  if (MODAL_MODE === 'create') {
+    // ========== 新規作成（ノンブロッキング） ==========
+    const tempId = generateTempId();
 
-    if (!res.ok) {
-      const errorMessages = {
-        'AUTH_REQUIRED': '認証が必要です。ログインしてください。',
-        'FORBIDDEN': '編集権限がありません。',
-        'OUT_OF_EDITABLE_RANGE': '編集可能期間外です。',
-        'INVALID_DATE': '日付の形式が不正です。',
-        'TYPE_REQUIRED': '予定種別を選択してください。',
-        'TITLE_REQUIRED': '件名を入力してください。',
-        'NOT_FOUND': '予定が見つかりません。'
-      };
-      const msg = errorMessages[res.error] || res.error || '保存に失敗しました';
-      alert(msg);
-      return;
-    }
+    // 楽観的UI更新: 仮IDで即座に画面に反映
+    const optimisticEvent = {
+      event_id: tempId,
+      date: payload.date,
+      start_time: payload.start_time,
+      end_time: payload.end_time,
+      type: payload.type,
+      title: payload.title,
+      location: payload.location,
+      memo: payload.memo,
+      display_order: payload.display_order,
+      status: payload.status,
+      _pending: true  // 保存中フラグ
+    };
+    addEventToUI(optimisticEvent);
 
-    await refresh();
+    // モーダルを即座に閉じる
     openModal(false);
-  } catch (e) {
-    console.error('Save error:', e);
-    alert('保存エラー: ' + e.message);
-  } finally {
-    showLoading(false);
+    showToast('予定を追加しました', 'success', 2000);
+
+    // バックグラウンドで保存
+    enqueueSave({
+      execute: async () => {
+        const res = await gas('createEvent', payload);
+        if (res && res.ok) {
+          // 仮IDを正式IDに置換
+          replaceEventId(tempId, res.event_id);
+          const event = STATE.eventById.get(res.event_id);
+          if (event) delete event._pending;
+          console.log('Background save success:', res.event_id);
+        } else {
+          // 保存失敗: UIから削除してエラー表示
+          removeEventFromUI(tempId);
+          const errorMsg = getErrorMessage(res?.error);
+          showToast('保存に失敗しました: ' + errorMsg, 'error', 6000);
+        }
+      },
+      onError: (e) => {
+        removeEventFromUI(tempId);
+        showToast('保存エラー: ' + e.message, 'error', 6000);
+      }
+    });
+
+  } else {
+    // ========== 更新（ノンブロッキング） ==========
+    const eventId = CURRENT_EVENT_ID;
+    const originalEvent = { ...STATE.eventById.get(eventId) };
+
+    // 楽観的UI更新
+    updateEventInUI(eventId, {
+      date: payload.date,
+      start_time: payload.start_time,
+      end_time: payload.end_time,
+      type: payload.type,
+      title: payload.title,
+      location: payload.location,
+      memo: payload.memo,
+      display_order: payload.display_order,
+      status: payload.status,
+      _pending: true
+    });
+
+    // モーダルを即座に閉じる
+    openModal(false);
+    showToast('予定を更新しました', 'success', 2000);
+
+    // バックグラウンドで保存
+    enqueueSave({
+      execute: async () => {
+        const res = await gas('updateEvent', eventId, payload);
+        if (res && res.ok) {
+          const event = STATE.eventById.get(eventId);
+          if (event) delete event._pending;
+          console.log('Background update success:', eventId);
+        } else {
+          // 保存失敗: 元に戻してエラー表示
+          updateEventInUI(eventId, originalEvent);
+          const errorMsg = getErrorMessage(res?.error);
+          showToast('更新に失敗しました: ' + errorMsg, 'error', 6000);
+        }
+      },
+      onError: (e) => {
+        updateEventInUI(eventId, originalEvent);
+        showToast('更新エラー: ' + e.message, 'error', 6000);
+      }
+    });
   }
 }
 
-async function onDelete() {
+function getErrorMessage(errorCode) {
+  const errorMessages = {
+    'AUTH_REQUIRED': '認証が必要です',
+    'FORBIDDEN': '編集権限がありません',
+    'OUT_OF_EDITABLE_RANGE': '編集可能期間外です',
+    'INVALID_DATE': '日付の形式が不正です',
+    'TYPE_REQUIRED': '予定種別を選択してください',
+    'TITLE_REQUIRED': '件名を入力してください',
+    'NOT_FOUND': '予定が見つかりません'
+  };
+  return errorMessages[errorCode] || errorCode || '不明なエラー';
+}
+
+function onDelete() {
   if (!CURRENT_EVENT_ID) return;
 
   if (!confirm('この予定を削除しますか？')) return;
 
-  showLoading(true);
-  try {
-    const res = await gas('deleteEvent', CURRENT_EVENT_ID);
+  const eventId = CURRENT_EVENT_ID;
+  const originalEvent = { ...STATE.eventById.get(eventId) };
 
-    if (!res.ok) {
-      const errorMessages = {
-        'AUTH_REQUIRED': '認証が必要です。',
-        'FORBIDDEN': '削除権限がありません。',
-        'OUT_OF_EDITABLE_RANGE': '編集可能期間外です。',
-        'NOT_FOUND': '予定が見つかりません。'
-      };
-      const msg = errorMessages[res.error] || res.error || '削除に失敗しました';
-      alert(msg);
-      return;
+  // 楽観的UI更新: 即座に画面から削除
+  removeEventFromUI(eventId);
+
+  // モーダルを即座に閉じる
+  openModal(false);
+  showToast('予定を削除しました', 'success', 2000);
+
+  // バックグラウンドで削除
+  enqueueSave({
+    execute: async () => {
+      const res = await gas('deleteEvent', eventId);
+      if (res && res.ok) {
+        console.log('Background delete success:', eventId);
+      } else {
+        // 削除失敗: 元に戻してエラー表示
+        addEventToUI(originalEvent);
+        const errorMsg = getErrorMessage(res?.error);
+        showToast('削除に失敗しました: ' + errorMsg, 'error', 6000);
+      }
+    },
+    onError: (e) => {
+      addEventToUI(originalEvent);
+      showToast('削除エラー: ' + e.message, 'error', 6000);
     }
-
-    await refresh();
-    openModal(false);
-  } catch (e) {
-    console.error('Delete error:', e);
-    alert('削除エラー: ' + e.message);
-  } finally {
-    showLoading(false);
-  }
+  });
 }
 
 // =============================================================================
