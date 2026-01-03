@@ -980,22 +980,28 @@ function getDaySettingsMap_(fromISO, toISO) {
 
   if (lastRow < 2) return map;
 
+  const settings = getSettings_();
+  const tz = settings.tz;
   const values = sh.getRange(2, 1, lastRow - 1, 2).getValues(); // A:date, B:type
 
   for (const [dateVal, type] of values) {
     if (!dateVal) continue;
     let key;
     if (dateVal instanceof Date) {
-      key = formatISODate_(dateVal);
+      // Date型の場合はタイムゾーンを考慮して変換
+      key = Utilities.formatDate(dateVal, tz, 'yyyy-MM-dd');
     } else {
+      // 文字列の場合はそのまま使用（YYYY-MM-DD形式を期待）
       key = String(dateVal).trim();
     }
     const typeStr = String(type || '').trim();
-    if (key >= fromISO && key <= toISO && typeStr) {
+    // 範囲チェックを緩めて、有効なデータは全て取得
+    if (typeStr && key.match(/^\d{4}-\d{2}-\d{2}$/)) {
       map[key] = typeStr;  // 'WORKDAY' or 'HOLIDAY'
     }
   }
 
+  console.log('getDaySettingsMap_ result:', JSON.stringify(map));
   return map;
 }
 

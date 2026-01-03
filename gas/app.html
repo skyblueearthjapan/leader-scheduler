@@ -346,6 +346,10 @@ async function boot() {
     STATE.notes = res.notes || {};
     STATE.daySettings = res.daySettings || {};
 
+    // デバッグ: 日付設定の確認
+    console.log('daySettings from server:', JSON.stringify(res.daySettings));
+    console.log('STATE.daySettings:', JSON.stringify(STATE.daySettings));
+
     renderHeader();
     renderBoards();
     setupModalMasters();
@@ -427,6 +431,9 @@ function renderMonthGrid(container, monthStart) {
 
       // 日付設定を取得
       const daySetting = STATE.daySettings[iso];
+      if (daySetting) {
+        console.log('Day setting found:', iso, daySetting);
+      }
 
       // 週末クラス（日付設定で上書きされる可能性あり）
       if (dayOfWeek === 0) {
