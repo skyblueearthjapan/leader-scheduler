@@ -1,238 +1,321 @@
-# A＋C＋B保存方式（三層保存）実装ガイド
+# A＋C＋B保存方式 実装ガイド
 
 コーディングエージェント向け指示書
 
 ---
 
-## 目的
+## 概要
 
-アップロード起点の機能（帳票、カレンダー、契約書、申請書、図面、仕様書など）を、壊れにくく運用しやすい形で実装するために、以下の"三層保存"を標準化する。
+A＋C＋B保存方式には2つのパターンがあります：
+
+| パターン | 用途 | A | C | B |
+|----------|------|---|---|---|
+| **UX最適化** | 入力フォームの高速化 | ローカルドラフト | 変更キュー | 遅延サーバ保存 |
+| **三層保存** | ファイルアップロード | 原本ファイル | 確認用PDF | 正規化DB |
+
+このドキュメントでは**UX最適化パターン**を解説します。
+
+---
+
+## A＋C＋B（入力UX最適化）の定義
 
 | 層 | 名称 | 役割 |
 |----|------|------|
-| **A** | 原本保存 | アップロードファイルをそのまま保存（監査・再取り込み用） |
-| **C** | 確認用 | 人間が確認できるPDF/HTML（運用確認用） |
-| **B** | 正規化データ | アプリが参照する正のデータ（スプレッドシート/DB） |
-
-この方式により、
-- 「原本が残るので後から検証・再取り込みが可能」
-- 「確認用があるので運用での事故が減る」
-- 「画面表示はB（構造化）参照で高速・安定」
-
-が同時に満たせる。
+| **A** | ローカルドラフト | 入力をブラウザに即時保存（localStorage/IndexedDB） |
+| **C** | 変更キュー | 変更差分を溜めて、まとめて送信 |
+| **B** | サーバ確定 | 一定条件でCをサーバへ反映（GAS） |
 
 ---
 
-## 1. 用語定義（必ずこの呼び方で統一）
+## 目的
 
-### A：原本保存（Source Archive）
-- ユーザーがアップロードしたファイルを **改変せずそのまま** 保存する層
-- 保存先：共有ドライブ推奨
-- 目的：監査、差し戻し、再パース、トラブル時の証跡
-
-### C：確認用アウトプット保存（Confirmation Artifact）
-- AまたはBを元に生成した "人間が確認できる形" の成果物
-- 例：一覧PDF、プレビューPDF、HTMLレポート、差分レポート
-- 目的：運用確認・合意形成・誤登録の早期発見
-
-### B：正規化データ保存（Normalized Data / System-of-Record）
-- アプリが参照する **正のデータ**
-- スプレッドシート/DB等で、検索・集計・表示に適した形に正規化して保存
-- 目的：表示・ロジック（色分け/集計/検索/通知）の唯一の参照元
+入力フォームの「保存処理が重くて入力が止まる」問題を解消する。
+ユーザーの入力は**常に即時反映（A）し、サーバ保存（B）は裏側でまとめて（C→B）**行う。
 
 ---
 
-## 2. ディレクトリ（フォルダ）設計：全アプリ共通
+## 要件（必須）
 
-共有ドライブ内にアプリ専用のルートフォルダを作る（例：`AppName_Data`）
+### 1) 入力は"常に止めない"
+- キー入力・選択・チェックなどのイベントで**サーバ保存を同期的に呼ばない**
+- 入力後の表示・編集はローカル状態（A）を参照して即時更新
 
-### 配下構成を固定化：
+### 2) 自動保存トリガー（Bへ反映する条件）
 
-```
-AppName_Data/
-├── 01_Source_A/      ← A（原本）
-├── 02_Confirm_C/     ← C（確認用）
-├── 03_System_B/      ← B（シート/DB、またはそのバックアップ）
-└── 99_Log/           ← （任意：インポートログ、エラーレポート）
-```
+次のいずれかで C（キュー）をB（サーバ）へ送る：
 
-### キーでサブフォルダ分け（データが「工番」「取引先」「案件ID」などキーを持つ場合）：
+| トリガー | 説明 |
+|----------|------|
+| 無操作時間 | 最後の入力から3秒何もなければ送信 |
+| 一定間隔 | 30秒ごとに未送信があれば送信 |
+| 画面遷移 | モーダル閉じる/タブ切替前 |
+| 明示的保存 | 保存ボタン押下で即送信 |
 
-```
-01_Source_A/{Key}/original.pdf
-02_Confirm_C/{Key}/preview_YYYYMMDD.pdf
-```
+### 3) 変更の溜め込み（C）
+- 変更ごとに「差分イベント」をキューに積む
+- 無操作になったらキューを1つのパッチに集約して送る
+- サーバ送信成功したらキューをクリア
 
----
+### 4) ローカル永続化（A）
+- ブラウザリロード/クラッシュ/回線断でも復旧できるように
+- A（ドラフト）とC（キュー）は**必ず永続化する**
 
-## 3. データモデル（Bの基本設計）
+### 5) 状態表示（UX）
 
-Bは必ず「機械が扱える形式」で保存する。最低限このルールを守る。
+画面に必ず表示：
+- ✓ 保存済み
+- ⏳ 保存中…
+- ⚠ 未保存（オフライン）
+- ✗ 保存失敗（再試行ボタン）
 
-| ルール | 説明 |
-|--------|------|
-| 主キー | 例：`recordId` を必ず持つ |
-| 日付 | ISO（YYYY-MM-DD）に統一 |
-| ステータス・区分 | enum（文字列固定）に統一 |
-| 再取り込み | 同一キーは「更新」扱い、重複行を作らない |
-
-### 例（シート列）：
-
-| 列 | 内容 |
-|----|------|
-| recordId | 主キー（UUID等） |
-| key | 工番・案件ID等 |
-| type | 種別 |
-| effectiveFrom | 有効開始日 |
-| effectiveTo | 有効終了日 |
-| sourceFileId | AのDrive fileId |
-| confirmFileId | CのDrive fileId |
-| importedAt | インポート日時 |
-| importedBy | インポートユーザー |
+### 6) データ整合性（重複・競合防止）
+- B側は**upsert**（同一レコードIDは更新）に統一
+- クライアント側はrevision（連番/timestamp）を持つ
+- サーバは古いrevisionを弾く
 
 ---
 
-## 4. 処理フロー（必須：この順序で）
-
-### Step 0: 事前チェック
-- 権限（共有ドライブへの書き込み）
-- ファイル形式（許可された拡張子）
-- サイズ上限
-
-### Step 1: A（原本保存）
-- アップロードされたファイルを共有ドライブの `01_Source_A/` に保存
-- 返却値に `sourceFileId` を含める
-
-### Step 2: B（正規化）
-- Aを入力としてパース（またはユーザー入力を整形）
-- バリデーション（必須）
-- 正規化してBへ保存（シート更新/DB upsert）
-- 返却値に `recordId` を含める
-
-### Step 3: C（確認用生成）
-- Bの内容を元に「確認用PDF/HTML」を生成し `02_Confirm_C/` に保存
-- `confirmFileId` を取得し、Bに紐付けて更新
-
-### Step 4: UI反映
-- 画面表示は必ずB参照
-- 「原本を開く」→ AのURL
-- 「確認PDFを開く」→ CのURL
+## 実装アーキテクチャ
 
 ```
-┌─────────────┐
-│  Upload     │
-└─────┬───────┘
-      ▼
-┌─────────────┐
-│ Step 1: A   │  原本保存 → sourceFileId
-└─────┬───────┘
-      ▼
-┌─────────────┐
-│ Step 2: B   │  パース → 正規化 → recordId
-└─────┬───────┘
-      ▼
-┌─────────────┐
-│ Step 3: C   │  確認用生成 → confirmFileId
-└─────┬───────┘
-      ▼
-┌─────────────┐
-│ Step 4: UI  │  画面はBを参照
-└─────────────┘
+┌─────────────────────────────────────────────────────┐
+│                    ブラウザ                          │
+├─────────────────────────────────────────────────────┤
+│  ┌─────────┐    ┌─────────┐    ┌─────────┐        │
+│  │   UI    │───→│ A:Draft │───→│ C:Queue │        │
+│  │ (Form)  │    │(local)  │    │(local)  │        │
+│  └─────────┘    └─────────┘    └────┬────┘        │
+│                                      │             │
+│                          3秒無操作 / 30秒間隔       │
+│                                      ▼             │
+│                              ┌─────────────┐      │
+│                              │   flush()   │      │
+│                              └──────┬──────┘      │
+└─────────────────────────────────────┼──────────────┘
+                                      │
+                                      ▼
+┌─────────────────────────────────────────────────────┐
+│                  B: サーバ（GAS）                    │
+│  ┌─────────────────────────────────────────────┐   │
+│  │  api_applyPatch(recordId, patch, revision)  │   │
+│  │  → upsert → return {ok, serverRevision}     │   │
+│  └─────────────────────────────────────────────┘   │
+└─────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 5. API（GAS）共通インターフェース
+## データ構造
 
-他アプリでも同型で作る：
+### A: draftStore（localStorage）
+
+```javascript
+// キー: draft:{app}:{recordId}
+{
+  "draft:schedule:evt-123": {
+    date: "2026-01-15",
+    start_time: "13:00",
+    end_time: "14:00",
+    type: "MEET",
+    title: "会議",
+    location: "本社",
+    memo: "",
+    revision: 5,
+    updatedAt: "2026-01-03T10:30:00Z"
+  }
+}
+```
+
+### C: changeQueue（localStorage）
+
+```javascript
+// キー: queue:{app}:{recordId}
+{
+  "queue:schedule:evt-123": [
+    { field: "title", value: "定例会議", at: 1704268200000 },
+    { field: "start_time", value: "14:00", at: 1704268205000 }
+  ]
+}
+```
+
+---
+
+## クライアント実装（JavaScript）
+
+### 主要関数
+
+```javascript
+// 1. フィールド変更時
+onFieldChange(recordId, field, value) {
+  // A: ドラフトに即時反映
+  updateDraft(recordId, field, value);
+
+  // C: キューに追加
+  pushToQueue(recordId, { field, value, at: Date.now() });
+
+  // 無操作3秒でflush
+  scheduleFlush(recordId, 3000);
+}
+
+// 2. サーバ送信
+async flush(recordId) {
+  if (isFlushing) return; // 二重送信防止
+
+  const queue = getQueue(recordId);
+  if (!queue.length) return;
+
+  // キュー → パッチに集約（同じfieldは最後の値のみ）
+  const patch = mergeQueueToPatch(queue);
+  const draft = getDraft(recordId);
+
+  setStatus('saving');
+
+  try {
+    const result = await gas('applyPatch', recordId, patch, draft.revision);
+    if (result.ok) {
+      clearQueue(recordId);
+      updateDraftRevision(recordId, result.serverRevision);
+      setStatus('saved');
+    } else {
+      setStatus('conflict');
+    }
+  } catch (e) {
+    setStatus('offline');
+    scheduleRetry(recordId, 30000);
+  }
+}
+
+// 3. 起動時の復元
+onBoot() {
+  const drafts = getAllDrafts();
+  const queues = getAllQueues();
+
+  // 未送信キューがあれば通知
+  if (hasUnsentQueues(queues)) {
+    showNotification('未送信のデータがあります');
+    flushAll();
+  }
+}
+```
+
+---
+
+## サーバ実装（GAS）
 
 ```javascript
 /**
- * A: 原本をDriveに保存
- * @param {string} fileBytesBase64 - Base64エンコードされたファイル
- * @param {string} filename - ファイル名
- * @param {string} key - 工番等のキー
- * @returns {Object} {sourceFileId, sourceUrl}
+ * パッチを適用（upsert）
+ * @param {string} recordId - レコードID（新規はtmp-xxxの場合あり）
+ * @param {Object} patch - 変更フィールド
+ * @param {number} clientRevision - クライアント側のリビジョン
  */
-function uploadSourceA_(fileBytesBase64, filename, key) { ... }
+function applyPatch(recordId, patch, clientRevision) {
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(10000);
 
-/**
- * B: 正規化データを保存（upsert）
- * @param {string} key - キー
- * @param {Object} parsedPayload - パース済みデータ
- * @param {string} sourceFileId - Aのファイル ID
- * @returns {Object} {recordId}
- */
-function upsertNormalizedB_(key, parsedPayload, sourceFileId) { ... }
+  try {
+    const sh = getEventsSheet_();
 
-/**
- * C: 確認用アウトプットを生成
- * @param {string} recordId - Bのレコード ID
- * @returns {Object} {confirmFileId, confirmUrl}
- */
-function buildConfirmC_(recordId) { ... }
+    // 新規（tmp-で始まる）か既存か
+    const isNew = recordId.startsWith('tmp-');
 
-/**
- * レコード取得（A/B/CのURLを含む）
- * @param {string} recordId
- * @returns {Object} {Bデータ, sourceUrl, confirmUrl}
- */
-function getRecord_(recordId) { ... }
+    if (isNew) {
+      // 新規作成
+      const newId = Utilities.getUuid();
+      const newRevision = 1;
+      // ... 行追加
+      return { ok: true, recordId: newId, serverRevision: newRevision };
+    } else {
+      // 既存更新
+      const row = findRowById_(sh, recordId);
+      if (!row) return { ok: false, error: 'NOT_FOUND' };
+
+      const serverRevision = getRevision_(sh, row);
+
+      // リビジョンチェック
+      if (clientRevision < serverRevision) {
+        return { ok: false, error: 'CONFLICT', serverRevision };
+      }
+
+      // パッチ適用
+      applyPatchToRow_(sh, row, patch);
+      const newRevision = serverRevision + 1;
+      setRevision_(sh, row, newRevision);
+
+      return { ok: true, serverRevision: newRevision };
+    }
+  } finally {
+    lock.releaseLock();
+  }
+}
 ```
 
-※アプリ固有差分は `parsedPayload` の中身だけ。
+---
+
+## 新規レコードの扱い（パターン1: 仮ID方式）
+
+```
+1. モーダル開く → tmp-{uuid} を生成
+2. 入力 → A/Cに tmp-xxx で保存
+3. 初回flush → サーバが正式ID発行
+4. A/Cのキーを tmp-xxx → 正式ID に置換
+```
+
+メリット：
+- 入力開始時にサーバ通信不要
+- オフラインでも新規作成開始可能
 
 ---
 
-## 6. 重要な実装ルール（事故防止）
+## 状態表示UI
 
-### 1. 画面はBだけ見る
-AやCを直接読んで画面生成しない（遅い・壊れる・差異が出る）
+```html
+<div class="save-status">
+  <span class="status-icon"></span>
+  <span class="status-text"></span>
+</div>
 
-### 2. 再取り込みで重複させない
-キー＋タイプで upsert（更新）にする
-
-### 3. Aがあるからいつでも再生成できる
-Cは再作成可能な成果物（キャッシュ扱い）。壊れても「C再生成」で復旧できる
-
-### 4. ログを残す
-- `importedAt` / `importedBy` / `sourceFileId` / `confirmFileId`
-- エラー時は `99_Log/` にエラーレポート保存（任意だが推奨）
-
----
-
-## 7. 受け入れ条件（他アプリでも共通）
-
-- [ ] アップロード後、Aに原本が保存されている
-- [ ] Bに正規化データが保存され、画面はそれを参照している
-- [ ] Cが生成され、ボタンから確認できる
-- [ ] 再アップロード（同キー）してもBが重複行にならず更新される
-- [ ] A/C/Bの紐付け（fileId）がBに記録され追跡できる
+<style>
+.save-status.saved .status-icon::before { content: "✓"; color: #10b981; }
+.save-status.saving .status-icon::before { content: "⏳"; }
+.save-status.offline .status-icon::before { content: "⚠"; color: #f59e0b; }
+.save-status.error .status-icon::before { content: "✗"; color: #ef4444; }
+</style>
+```
 
 ---
 
-## 補足：この方式が優れている理由
+## beforeunload対策
 
-| 層 | メリット |
-|----|----------|
-| **A（原本）** | 後から検証・再変換ができ、運用事故に強い |
-| **B（正規化）** | アプリが安定して動き、UI/検索/集計が壊れない |
-| **C（確認）** | 人が目で見て正しいか素早く確認できる |
+ブラウザ制約で「閉じる直前に必ず送信」は保証できない。
 
-→ 結果として、**仕様変更やデータ崩れに最も強い構造**になる
+**対策：**
+- A/Cがローカルに残ることを正とする
+- 次回起動時に未送信キューを検知して自動送信
+- 送信できない時は「未保存」表示
 
 ---
 
-## 適用例：社長スケジュール
+## 受け入れ条件（テスト観点）
 
-### 現状（Bのみ）
-- スプレッドシートに予定データを直接保存
-- 画面から手動入力
+- [ ] 入力中に保存待ちでUIが固まらない
+- [ ] 3秒無操作で自動的に「保存中→保存済み」になる
+- [ ] 回線断で「未保存」になるが、入力は継続できる
+- [ ] 回線復帰で自動送信され、Bに反映される
+- [ ] リロードしても入力内容が復元される
+- [ ] 同じレコードの保存が重複行にならず更新される（upsert）
 
-### A＋C＋B適用後
-- **A**: PDFカレンダーをアップロード → 原本保存
-- **B**: パースして予定データに変換 → スプレッドシート保存（既存）
-- **C**: インポート結果のプレビューPDF/HTML生成
+---
+
+## 横展開時のカスタマイズ箇所
+
+| 項目 | 説明 |
+|------|------|
+| recordIdの定義 | 何をキーに1レコードとするか |
+| patchのフィールド | フォーム項目の一覧 |
+| Bの保存先 | スプレッドシートの列定義 |
+
+それ以外（A/C/Bの仕組み、状態表示、flush/リトライ）は共通化可能。
 
 ---
 

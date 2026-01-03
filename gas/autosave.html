@@ -1,0 +1,303 @@
+<script>
+/**
+ * A＋C＋B 自動保存サービス
+ * A: ローカルドラフト（localStorage）
+ * C: 変更キュー
+ * B: 遅延サーバ保存
+ */
+
+const AutoSave = (function() {
+  const APP_KEY = 'schedule';
+  const DEBOUNCE_MS = 3000;       // 無操作3秒で自動保存
+  const INTERVAL_MS = 30000;      // 30秒間隔でチェック
+  const RETRY_MS = 10000;         // 失敗時10秒後リトライ
+
+  // 状態
+  let _flushTimers = {};          // recordId → timerId
+  let _isFlushing = {};           // recordId → boolean
+  let _intervalId = null;
+  let _statusCallback = null;
+
+  // ==========================================================================
+  // A: ローカルドラフト（localStorage）
+  // ==========================================================================
+
+  function draftKey(recordId) {
+    return `draft:${APP_KEY}:${recordId}`;
+  }
+
+  function getDraft(recordId) {
+    const raw = localStorage.getItem(draftKey(recordId));
+    return raw ? JSON.parse(raw) : null;
+  }
+
+  function setDraft(recordId, data) {
+    data.updatedAt = new Date().toISOString();
+    localStorage.setItem(draftKey(recordId), JSON.stringify(data));
+  }
+
+  function updateDraftField(recordId, field, value) {
+    let draft = getDraft(recordId) || { revision: 0 };
+    draft[field] = value;
+    setDraft(recordId, draft);
+    return draft;
+  }
+
+  function updateDraftRevision(recordId, revision) {
+    let draft = getDraft(recordId);
+    if (draft) {
+      draft.revision = revision;
+      setDraft(recordId, draft);
+    }
+  }
+
+  function deleteDraft(recordId) {
+    localStorage.removeItem(draftKey(recordId));
+  }
+
+  function getAllDrafts() {
+    const drafts = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key.startsWith(`draft:${APP_KEY}:`)) {
+        const recordId = key.replace(`draft:${APP_KEY}:`, '');
+        drafts[recordId] = JSON.parse(localStorage.getItem(key));
+      }
+    }
+    return drafts;
+  }
+
+  // ==========================================================================
+  // C: 変更キュー
+  // ==========================================================================
+
+  function queueKey(recordId) {
+    return `queue:${APP_KEY}:${recordId}`;
+  }
+
+  function getQueue(recordId) {
+    const raw = localStorage.getItem(queueKey(recordId));
+    return raw ? JSON.parse(raw) : [];
+  }
+
+  function pushToQueue(recordId, change) {
+    const queue = getQueue(recordId);
+    queue.push(change);
+    localStorage.setItem(queueKey(recordId), JSON.stringify(queue));
+  }
+
+  function clearQueue(recordId) {
+    localStorage.removeItem(queueKey(recordId));
+  }
+
+  function getAllQueues() {
+    const queues = {};
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key.startsWith(`queue:${APP_KEY}:`)) {
+        const recordId = key.replace(`queue:${APP_KEY}:`, '');
+        queues[recordId] = JSON.parse(localStorage.getItem(key));
+      }
+    }
+    return queues;
+  }
+
+  function hasUnsentQueues() {
+    const queues = getAllQueues();
+    return Object.values(queues).some(q => q.length > 0);
+  }
+
+  // キュー → パッチに集約（同じfieldは最後の値のみ）
+  function mergeQueueToPatch(queue) {
+    const patch = {};
+    for (const item of queue) {
+      patch[item.field] = item.value;
+    }
+    return patch;
+  }
+
+  // ==========================================================================
+  // B: サーバ送信
+  // ==========================================================================
+
+  function setStatus(status, recordId) {
+    if (_statusCallback) {
+      _statusCallback(status, recordId);
+    }
+  }
+
+  async function flush(recordId) {
+    if (_isFlushing[recordId]) return;
+
+    const queue = getQueue(recordId);
+    if (!queue.length) {
+      setStatus('saved', recordId);
+      return;
+    }
+
+    _isFlushing[recordId] = true;
+    setStatus('saving', recordId);
+
+    const patch = mergeQueueToPatch(queue);
+    const draft = getDraft(recordId) || { revision: 0 };
+
+    try {
+      const result = await gasAsync('applyPatch', recordId, patch, draft.revision || 0);
+
+      if (result.ok) {
+        clearQueue(recordId);
+
+        // 新規の場合、仮ID→正式IDに置換
+        if (recordId.startsWith('tmp-') && result.recordId) {
+          const newId = result.recordId;
+          // ドラフトを新IDで保存
+          draft.revision = result.serverRevision;
+          setDraft(newId, draft);
+          deleteDraft(recordId);
+          // 古いキューを削除（念のため）
+          clearQueue(recordId);
+          setStatus('saved', newId);
+        } else {
+          updateDraftRevision(recordId, result.serverRevision);
+          setStatus('saved', recordId);
+        }
+
+        return result;
+      } else if (result.error === 'CONFLICT') {
+        setStatus('conflict', recordId);
+        console.warn('Conflict detected, server revision:', result.serverRevision);
+      } else {
+        setStatus('error', recordId);
+        scheduleRetry(recordId);
+      }
+    } catch (e) {
+      console.error('Flush error:', e);
+      setStatus('offline', recordId);
+      scheduleRetry(recordId);
+    } finally {
+      _isFlushing[recordId] = false;
+    }
+
+    return null;
+  }
+
+  function scheduleFlush(recordId, delay = DEBOUNCE_MS) {
+    if (_flushTimers[recordId]) {
+      clearTimeout(_flushTimers[recordId]);
+    }
+    _flushTimers[recordId] = setTimeout(() => {
+      delete _flushTimers[recordId];
+      flush(recordId);
+    }, delay);
+  }
+
+  function scheduleRetry(recordId) {
+    scheduleFlush(recordId, RETRY_MS);
+  }
+
+  async function flushAll() {
+    const queues = getAllQueues();
+    const promises = Object.keys(queues)
+      .filter(id => queues[id].length > 0)
+      .map(id => flush(id));
+    return Promise.all(promises);
+  }
+
+  // GAS呼び出しのPromiseラッパー
+  function gasAsync(method, ...args) {
+    return new Promise((resolve, reject) => {
+      google.script.run
+        .withSuccessHandler(resolve)
+        .withFailureHandler(reject)
+        [method](...args);
+    });
+  }
+
+  // ==========================================================================
+  // 公開API
+  // ==========================================================================
+
+  /**
+   * フィールド変更時に呼び出す
+   */
+  function onFieldChange(recordId, field, value) {
+    // A: ドラフトに即時反映
+    updateDraftField(recordId, field, value);
+
+    // C: キューに追加
+    pushToQueue(recordId, { field, value, at: Date.now() });
+
+    // 無操作でflush
+    scheduleFlush(recordId);
+
+    setStatus('pending', recordId);
+  }
+
+  /**
+   * 新規レコード用の仮IDを生成
+   */
+  function generateTempId() {
+    return 'tmp-' + crypto.randomUUID();
+  }
+
+  /**
+   * 初期化（アプリ起動時に呼び出す）
+   */
+  function init(statusCallback) {
+    _statusCallback = statusCallback;
+
+    // 定期チェック開始
+    if (_intervalId) clearInterval(_intervalId);
+    _intervalId = setInterval(() => {
+      if (hasUnsentQueues()) {
+        flushAll();
+      }
+    }, INTERVAL_MS);
+
+    // 未送信キューがあれば送信
+    if (hasUnsentQueues()) {
+      console.log('Unsent queues detected, flushing...');
+      flushAll();
+    }
+  }
+
+  /**
+   * 強制保存（モーダル閉じる時など）
+   */
+  async function forceFlush(recordId) {
+    if (_flushTimers[recordId]) {
+      clearTimeout(_flushTimers[recordId]);
+      delete _flushTimers[recordId];
+    }
+    return flush(recordId);
+  }
+
+  /**
+   * ドラフトからフォームに復元
+   */
+  function restoreFromDraft(recordId) {
+    return getDraft(recordId);
+  }
+
+  /**
+   * クリーンアップ（保存完了後にドラフト削除）
+   */
+  function cleanup(recordId) {
+    deleteDraft(recordId);
+    clearQueue(recordId);
+  }
+
+  return {
+    init,
+    onFieldChange,
+    generateTempId,
+    forceFlush,
+    flushAll,
+    restoreFromDraft,
+    cleanup,
+    getDraft,
+    setDraft,
+    hasUnsentQueues
+  };
+})();
+</script>

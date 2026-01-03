@@ -98,6 +98,10 @@
       <div class="modal__footer">
         <button class="btn btn--danger" id="deleteBtn" type="button">削除</button>
         <div class="spacer"></div>
+        <div class="save-status" id="saveStatus">
+          <span class="status-icon"></span>
+          <span class="status-text"></span>
+        </div>
         <button class="btn btn--ghost" id="cancelBtn" type="button">キャンセル</button>
         <button class="btn btn--primary" id="saveBtn" type="button">保存</button>
       </div>
@@ -143,6 +147,7 @@
     <div class="loading__text">読み込み中...</div>
   </div>
 
+  <?!= include_('autosave'); ?>
   <?!= include_('app'); ?>
 </body>
 </html>

@@ -525,6 +525,148 @@ function deleteEvent(eventId) {
   }
 }
 
+// =============================================================================
+// A＋C＋B自動保存用 パッチ適用API
+// =============================================================================
+
+/**
+ * パッチを適用（upsert）- 自動保存用
+ * @param {string} recordId - レコードID（新規はtmp-xxxの場合あり）
+ * @param {Object} patch - 変更フィールド
+ * @param {number} clientRevision - クライアント側のリビジョン
+ * @returns {Object} {ok, recordId?, serverRevision?, error?}
+ */
+function applyPatch(recordId, patch, clientRevision) {
+  const lock = LockService.getDocumentLock();
+  try {
+    lock.waitLock(10000);
+  } catch (e) {
+    return { ok: false, error: 'LOCK_TIMEOUT' };
+  }
+
+  try {
+    const user = getUserContext_();
+    const settings = getSettings_();
+
+    // 権限チェック
+    if (!(user.role === 'editor' || user.role === 'admin')) {
+      return { ok: false, error: 'FORBIDDEN' };
+    }
+
+    const ss = SpreadsheetApp.getActive();
+    const sh = ss.getSheetByName(SHEET_EVENTS);
+    if (!sh) {
+      throw new Error('SHEET_NOT_FOUND: ' + SHEET_EVENTS);
+    }
+
+    const tz = settings.tz;
+    const now = new Date();
+    const isNew = recordId.startsWith('tmp-');
+
+    if (isNew) {
+      // ========== 新規作成 ==========
+      // 日付の権限チェック
+      if (patch.date) {
+        assertCanEdit_(user, settings, patch.date);
+      }
+
+      const newId = Utilities.getUuid();
+      const newRevision = 1;
+
+      // 時刻はテキスト形式で保存
+      const startTimeText = patch.start_time ? String(patch.start_time) : '';
+      const endTimeText = patch.end_time ? String(patch.end_time) : '';
+
+      const newRow = sh.getLastRow() + 1;
+      sh.getRange(newRow, 1, 1, 16).setValues([[
+        newId,
+        patch.date ? new Date(patch.date + 'T00:00:00') : '',
+        startTimeText,
+        endTimeText,
+        patch.type || '',
+        patch.title || '',
+        patch.location || '',
+        patch.memo || '',
+        patch.display_order !== undefined && patch.display_order !== '' ? Number(patch.display_order) : '',
+        patch.status || 'CONFIRMED',
+        '', // 月キー
+        Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
+        user.email,
+        Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'),
+        user.email,
+        newRevision // O列: revision
+      ]]);
+      // 時刻列をテキスト形式に
+      sh.getRange(newRow, 3, 1, 2).setNumberFormat('@');
+
+      return { ok: true, recordId: newId, serverRevision: newRevision };
+
+    } else {
+      // ========== 既存更新 ==========
+      const rowNum = findEventRowById_(sh, String(recordId));
+      if (!rowNum) {
+        return { ok: false, error: 'NOT_FOUND' };
+      }
+
+      // 日付の権限チェック（変更後の日付でチェック）
+      const currentDate = sh.getRange(rowNum, 2).getValue();
+      const targetDate = patch.date || formatISODate_(currentDate instanceof Date ? currentDate : new Date(currentDate));
+      assertCanEdit_(user, settings, targetDate);
+
+      // サーバ側リビジョン取得（O列、なければ0）
+      const serverRevision = Number(sh.getRange(rowNum, 16).getValue()) || 0;
+
+      // リビジョンチェック（クライアントが古ければ競合）
+      if (clientRevision < serverRevision) {
+        return { ok: false, error: 'CONFLICT', serverRevision };
+      }
+
+      // パッチ適用
+      const colMap = {
+        date: 2,
+        start_time: 3,
+        end_time: 4,
+        type: 5,
+        title: 6,
+        location: 7,
+        memo: 8,
+        display_order: 9,
+        status: 10
+      };
+
+      for (const [field, value] of Object.entries(patch)) {
+        const col = colMap[field];
+        if (col) {
+          if (field === 'date' && value) {
+            sh.getRange(rowNum, col).setValue(new Date(value + 'T00:00:00'));
+          } else if (field === 'start_time' || field === 'end_time') {
+            sh.getRange(rowNum, col).setValue(value ? String(value) : '');
+            sh.getRange(rowNum, col).setNumberFormat('@');
+          } else if (field === 'display_order') {
+            sh.getRange(rowNum, col).setValue(value !== '' ? Number(value) : '');
+          } else {
+            sh.getRange(rowNum, col).setValue(value || '');
+          }
+        }
+      }
+
+      // 更新日時・更新者・リビジョン更新
+      const newRevision = serverRevision + 1;
+      sh.getRange(rowNum, 14).setValue(Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'));
+      sh.getRange(rowNum, 15).setValue(user.email);
+      sh.getRange(rowNum, 16).setValue(newRevision);
+
+      return { ok: true, serverRevision: newRevision };
+    }
+
+  } catch (e) {
+    console.error('applyPatch error:', e);
+    return { ok: false, error: e.message || 'PATCH_FAILED' };
+  } finally {
+    lock.releaseLock();
+  }
+}
+
 /**
  * event_idから行番号を検索
  */
