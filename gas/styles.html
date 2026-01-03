@@ -208,24 +208,70 @@
     border-bottom: 1px solid var(--line);
   }
 
-  /* 予定セル（3行目）- 縦書きカードを横に並べ、溢れたらスクロール */
+  /* 予定セル（3行目）- 縦書きテキストを直接描画 */
   .eventsCell{
     grid-row: 3;
     min-height: 180px;
     max-height: 320px;
-    overflow-y: auto;
-    overflow-x: hidden;
-    display: flex;
-    flex-wrap: wrap;
-    align-content: flex-start;
-    gap: 2px;
     cursor: pointer;
     background: #fff;
-    padding: 4px 2px;
+    padding: 0;
     transition: background 0.1s;
   }
   .eventsCell:hover{ background: #f9fbff; }
   .eventsCell.not-editable{ cursor: default; background: #fafafa; }
+
+  /* セル内に直接予定テキストを縦書き表示（カード廃止） */
+  .eventsTextStack{
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    white-space: pre-wrap;
+    line-height: 1.3;
+    height: 100%;
+    width: 100%;
+    padding: 6px 4px;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+
+  /* 1予定ブロック（縦書きテキスト） */
+  .eventLine{
+    font-size: 13px;
+    font-weight: 900;
+    color: var(--text);
+    margin-left: 8px;
+    padding-top: 4px;
+    padding-bottom: 2px;
+    position: relative;
+    cursor: pointer;
+    border-radius: 2px;
+  }
+  .eventLine:first-child{
+    margin-left: 0;
+  }
+  .eventLine:hover{
+    background: rgba(59, 130, 246, 0.08);
+  }
+
+  /* 種別色は上の細線のみ */
+  .eventLine::before{
+    content: "";
+    position: absolute;
+    top: 0;
+    right: 0;
+    left: 0;
+    height: 3px;
+    background: var(--typeColor, var(--accent2));
+    border-radius: 2px;
+  }
+
+  /* 種別ごとの色 */
+  .type-MEET, .type-MEETING{ --typeColor: #7c3aed; }
+  .type-VIP, .type-VISIT{ --typeColor: #f59e0b; }
+  .type-OUT, .type-TRAVEL{ --typeColor: #10b981; }
+  .type-DINNER{ --typeColor: #ec4899; }
+  .type-HOLIDAY{ --typeColor: #ef4444; }
+  .type-OTHER{ --typeColor: #64748b; }
 
   /* 備考セル（3行目）- 縦書き表示 */
   .notesBody{
@@ -266,62 +312,6 @@
     background: var(--soft);
     opacity: 0.7;
     cursor: not-allowed;
-  }
-
-  /* 予定カード（縦書き専用レイアウト）- 可読性最優先 */
-  .eventItem{
-    position: relative;
-    display: inline-block;
-    vertical-align: top;
-    width: clamp(44px, 5vw, 64px);  /* 最小44px - 細すぎ禁止 */
-    min-height: 120px;
-    margin: 4px 4px 0 0;
-    padding: 10px 6px 8px;
-    border-radius: 10px;
-    background: #fff;
-    border: 1px solid var(--line);
-    cursor: pointer;
-    overflow: hidden;
-    transition: background 0.1s, border-color 0.1s;
-  }
-
-  /* 色は上の細い線だけ（左右帯は作らない） */
-  .eventItem::before{
-    content: "";
-    position: absolute;
-    top: 0; left: 0; right: 0;
-    height: 4px;
-    background: var(--typeColor, var(--accent2));
-    border-radius: 10px 10px 0 0;
-  }
-
-  .eventItem:hover{
-    background: #f9fbff;
-    border-color: #dbeafe;
-  }
-
-  /* 縦書き時刻：小さく、でも読める */
-  .eventVTime{
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    font-size: 10px;
-    font-weight: 900;
-    color: var(--muted);
-    margin-bottom: 4px;
-    line-height: 1;
-  }
-
-  /* 縦書き本文：読めること最優先 */
-  .eventVText{
-    writing-mode: vertical-rl;
-    text-orientation: mixed;
-    font-size: 13px;
-    font-weight: 900;
-    line-height: 1.15;
-    letter-spacing: 0.02em;
-    white-space: pre-wrap;
-    word-break: break-word;
-    color: var(--text);
   }
 
   /* Weekend / Today */
