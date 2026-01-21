@@ -400,6 +400,25 @@ function createEvent(payload) {
     // 時刻列（C, D）をテキスト形式に設定
     sh.getRange(newRow, 3, 1, 2).setNumberFormat('@');
 
+    // Googleカレンダーへ同期（非同期的に実行、エラーでも保存は成功扱い）
+    try {
+      const eventData = {
+        event_id: eventId,
+        date: payload.date,
+        start_time: startTimeText,
+        end_time: endTimeText,
+        type: payload.type || '',
+        title: payload.title || '',
+        location: payload.location || '',
+        memo: payload.memo || '',
+        status: payload.status || 'CONFIRMED',
+        is_all_day: !startTimeText && !endTimeText,
+      };
+      syncEventToGcalAfterCreate_(eventId, eventData);
+    } catch (syncErr) {
+      console.log('GCal sync error (non-fatal):', syncErr);
+    }
+
     return { ok: true, event_id: eventId };
   } catch (e) {
     console.error('createEvent error:', e);
@@ -453,6 +472,9 @@ function updateEvent(eventId, payload) {
     const startTimeText = payload.start_time ? String(payload.start_time) : '';
     const endTimeText = payload.end_time ? String(payload.end_time) : '';
 
+    // 既存のgcal_event_idを取得
+    const existingGcalEventId = sh.getRange(rowNum, 16).getValue() || '';
+
     sh.getRange(rowNum, 1, 1, 15).setValues([[
       String(eventId),
       new Date(payload.date + 'T00:00:00'),
@@ -472,6 +494,26 @@ function updateEvent(eventId, payload) {
     ]]);
     // 時刻列（C, D）をテキスト形式に設定
     sh.getRange(rowNum, 3, 1, 2).setNumberFormat('@');
+
+    // Googleカレンダーへ同期（非同期的に実行、エラーでも保存は成功扱い）
+    try {
+      const eventData = {
+        event_id: eventId,
+        date: payload.date,
+        start_time: startTimeText,
+        end_time: endTimeText,
+        type: payload.type || '',
+        title: payload.title || '',
+        location: payload.location || '',
+        memo: payload.memo || '',
+        status: payload.status || 'CONFIRMED',
+        is_all_day: !startTimeText && !endTimeText,
+        gcal_event_id: existingGcalEventId,
+      };
+      syncEventToGcalAfterCreate_(eventId, eventData);
+    } catch (syncErr) {
+      console.log('GCal sync error (non-fatal):', syncErr);
+    }
 
     return { ok: true };
   } catch (e) {
@@ -515,6 +557,27 @@ function deleteEvent(eventId) {
 
     // 権限チェック（サーバ側で確実に）
     assertCanEdit_(user, settings, iso);
+
+    // Googleカレンダーから削除（行削除前にgcal_event_idを取得）
+    try {
+      const gcalEventId = sh.getRange(rowNum, 16).getValue();
+      if (gcalEventId) {
+        const syncSettings = getGcalSyncSettings_();
+        const calendarId = syncSettings[GCAL_SETTINGS_KEYS.CALENDAR_ID];
+        const enabled = syncSettings[GCAL_SETTINGS_KEYS.SYNC_ENABLED];
+
+        if ((enabled === true || enabled === 'TRUE' || enabled === 'true') && calendarId) {
+          try {
+            Calendar.Events.remove(calendarId, gcalEventId);
+            console.log('GCal event deleted:', gcalEventId);
+          } catch (gcalErr) {
+            console.log('GCal delete error (may already deleted):', gcalErr.message);
+          }
+        }
+      }
+    } catch (syncErr) {
+      console.log('GCal sync error (non-fatal):', syncErr);
+    }
 
     sh.deleteRow(rowNum);
     return { ok: true };
@@ -1087,4 +1150,683 @@ function setDaySetting(dateISO, type, memo) {
   } finally {
     lock.releaseLock();
   }
+}
+
+// =============================================================================
+// Googleカレンダー双方向同期
+// =============================================================================
+
+/**
+ * 同期用定数
+ */
+const GCAL_SETTINGS_KEYS = {
+  CALENDAR_ID: 'gcal_calendar_id',
+  SYNC_ENABLED: 'gcal_sync_enabled',
+  RANGE_START: 'gcal_sync_range_start',
+  RANGE_END: 'gcal_sync_range_end',
+  LAST_SYNC_TOKEN: 'gcal_sync_token',
+  LAST_SYNC_AT: 'gcal_last_sync_at',
+  LOOP_GUARD_SECONDS: 'gcal_loop_guard_seconds',
+};
+
+const SYNC_SOURCE = {
+  WEBAPP: 'WEBAPP',
+  GCAL: 'GCAL',
+  SYSTEM: 'SYSTEM',
+};
+
+/**
+ * 同期設定を取得
+ */
+function getGcalSyncSettings_() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(SHEET_SETTINGS);
+  if (!sh) return {};
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) return {};
+
+  const values = sh.getRange(2, 1, lastRow - 1, 2).getValues();
+  const map = {};
+  values.forEach(([k, v]) => {
+    if (k) map[String(k).trim()] = v;
+  });
+  return map;
+}
+
+/**
+ * 同期設定を保存
+ */
+function setGcalSyncSetting_(key, value) {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(SHEET_SETTINGS);
+  if (!sh) return;
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < 2) {
+    sh.getRange(2, 1, 1, 2).setValues([[key, value]]);
+    return;
+  }
+
+  const values = sh.getRange(2, 1, lastRow - 1, 2).getValues();
+  for (let i = 0; i < values.length; i++) {
+    if (String(values[i][0]).trim() === key) {
+      sh.getRange(2 + i, 2).setValue(value);
+      return;
+    }
+  }
+  // 無ければ末尾追加
+  sh.getRange(lastRow + 1, 1, 1, 2).setValues([[key, value]]);
+}
+
+/**
+ * イベントの同期用ハッシュを生成
+ */
+function buildSyncHash_(e) {
+  const payload = {
+    date: e.date || '',
+    start_time: e.start_time || '',
+    end_time: e.end_time || '',
+    is_all_day: !!e.is_all_day,
+    title: e.title || '',
+    location: e.location || '',
+    memo: e.memo || '',
+    type: e.type || '',
+    status: e.status || '',
+  };
+  const s = JSON.stringify(payload);
+  const bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, s, Utilities.Charset.UTF_8);
+  return bytes.map(b => ('0' + (b & 0xFF).toString(16)).slice(-2)).join('');
+}
+
+/**
+ * Sheet予定をGCalイベントリソースに変換
+ */
+function buildGcalEventResource_(e) {
+  const tz = Session.getScriptTimeZone();
+
+  const resource = {
+    summary: e.title || '',
+    location: e.location || '',
+    description: e.memo || '',
+    extendedProperties: {
+      private: {
+        lw_event_id: String(e.event_id || ''),
+        lw_origin: 'LW',
+        lw_type: e.type || '',
+      }
+    }
+  };
+
+  // 終日 or 時間あり
+  const isAllDay = e.is_all_day || (!e.start_time && !e.end_time);
+
+  if (isAllDay) {
+    // 終日：end.date は翌日が仕様
+    const startDate = String(e.date);
+    const endDateObj = new Date(startDate + 'T00:00:00');
+    endDateObj.setDate(endDateObj.getDate() + 1);
+    resource.start = { date: startDate };
+    resource.end = { date: formatISODate_(endDateObj) };
+  } else {
+    const start = `${e.date}T${e.start_time || '00:00'}:00`;
+    const end = e.end_time ? `${e.date}T${e.end_time}:00` : start;
+    resource.start = { dateTime: start, timeZone: tz };
+    resource.end = { dateTime: end, timeZone: tz };
+  }
+
+  // 種別→色（オプション）
+  const colorMap = {
+    'MEET': '9',      // 青
+    'MEETING': '9',
+    'VIP': '11',      // 赤
+    'VISIT': '6',     // オレンジ
+    'OUT': '2',       // 緑
+    'TRAVEL': '5',    // 黄
+    'DINNER': '3',    // 紫
+    'HOLIDAY': '8',   // グレー
+  };
+  if (e.type && colorMap[e.type]) {
+    resource.colorId = colorMap[e.type];
+  }
+
+  return resource;
+}
+
+/**
+ * 1件のSheet予定をGCalへ同期（作成/更新/削除）
+ */
+function syncOneEventToGcal_(e, calendarId) {
+  if (!calendarId) return { gcal_event_id: '' };
+
+  // 削除フラグの場合
+  if (e.is_deleted) {
+    if (e.gcal_event_id) {
+      try {
+        Calendar.Events.remove(calendarId, e.gcal_event_id);
+        console.log('GCal event deleted:', e.gcal_event_id);
+      } catch (err) {
+        console.log('GCal delete error (may already deleted):', err.message);
+      }
+    }
+    return { gcal_event_id: e.gcal_event_id || '' };
+  }
+
+  const resource = buildGcalEventResource_(e);
+
+  if (!e.gcal_event_id) {
+    // 新規作成
+    try {
+      const created = Calendar.Events.insert(resource, calendarId);
+      console.log('GCal event created:', created.id);
+      return { gcal_event_id: created.id };
+    } catch (err) {
+      console.error('GCal insert error:', err);
+      return { gcal_event_id: '', error: err.message };
+    }
+  } else {
+    // 更新
+    try {
+      const patched = Calendar.Events.patch(resource, calendarId, e.gcal_event_id);
+      console.log('GCal event updated:', patched.id);
+      return { gcal_event_id: patched.id };
+    } catch (err) {
+      console.error('GCal patch error:', err);
+      // 存在しない場合は新規作成を試みる
+      if (err.message && err.message.includes('404')) {
+        try {
+          const created = Calendar.Events.insert(resource, calendarId);
+          console.log('GCal event re-created:', created.id);
+          return { gcal_event_id: created.id };
+        } catch (e2) {
+          return { gcal_event_id: '', error: e2.message };
+        }
+      }
+      return { gcal_event_id: e.gcal_event_id, error: err.message };
+    }
+  }
+}
+
+/**
+ * イベント作成後にGCalへ同期（createEventから呼び出し）
+ */
+function syncEventToGcalAfterCreate_(eventId, eventData) {
+  const syncSettings = getGcalSyncSettings_();
+  const enabled = syncSettings[GCAL_SETTINGS_KEYS.SYNC_ENABLED];
+  const calendarId = syncSettings[GCAL_SETTINGS_KEYS.CALENDAR_ID];
+
+  if (enabled !== true && enabled !== 'TRUE' && enabled !== 'true') {
+    console.log('GCal sync disabled');
+    return null;
+  }
+  if (!calendarId) {
+    console.log('GCal calendar ID not set');
+    return null;
+  }
+
+  const result = syncOneEventToGcal_(eventData, calendarId);
+
+  // gcal_event_id をシートに保存
+  if (result.gcal_event_id) {
+    updateEventGcalId_(eventId, result.gcal_event_id, calendarId);
+  }
+
+  return result;
+}
+
+/**
+ * イベントのgcal_event_idを更新
+ */
+function updateEventGcalId_(eventId, gcalEventId, calendarId) {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(SHEET_EVENTS);
+  if (!sh) return;
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < EVENTS_DATA_START_ROW) return;
+
+  const ids = sh.getRange(EVENTS_DATA_START_ROW, 1, lastRow - EVENTS_DATA_START_ROW + 1, 1).getValues();
+  for (let i = 0; i < ids.length; i++) {
+    if (String(ids[i][0]).trim() === String(eventId).trim()) {
+      const row = EVENTS_DATA_START_ROW + i;
+      // P列(16): gcal_event_id, Q列(17): gcal_calendar_id, R列(18): last_sync_at, S列(19): sync_source
+      sh.getRange(row, 16).setValue(gcalEventId);
+      sh.getRange(row, 17).setValue(calendarId);
+      sh.getRange(row, 18).setValue(new Date());
+      sh.getRange(row, 19).setValue(SYNC_SOURCE.WEBAPP);
+      console.log('Updated gcal_event_id for event:', eventId, '->', gcalEventId);
+      return;
+    }
+  }
+}
+
+/**
+ * GCalイベントをSheet形式に変換
+ */
+function gcalEventToSheetData_(ev, calendarId) {
+  const tz = Session.getScriptTimeZone();
+  const isDeleted = (ev.status === 'cancelled');
+
+  const data = {
+    gcal_event_id: ev.id,
+    gcal_calendar_id: calendarId,
+    title: ev.summary || '',
+    location: ev.location || '',
+    memo: ev.description || '',
+    is_deleted: isDeleted,
+    last_modified_at: ev.updated || new Date().toISOString(),
+    last_modified_by: (ev.creator && ev.creator.email) ? ev.creator.email : '',
+  };
+
+  // 日付/時刻
+  if (ev.start && ev.start.date) {
+    data.is_all_day = true;
+    data.date = ev.start.date;
+    data.start_time = '';
+    data.end_time = '';
+  } else if (ev.start && ev.start.dateTime) {
+    data.is_all_day = false;
+    const d = new Date(ev.start.dateTime);
+    data.date = formatISODate_(d);
+    data.start_time = Utilities.formatDate(d, tz, 'HH:mm');
+    if (ev.end && ev.end.dateTime) {
+      const e = new Date(ev.end.dateTime);
+      data.end_time = Utilities.formatDate(e, tz, 'HH:mm');
+    } else {
+      data.end_time = '';
+    }
+  }
+
+  // extendedPropertiesからtype等を復元
+  const priv = (ev.extendedProperties && ev.extendedProperties.private) || {};
+  if (priv.lw_type) {
+    data.type = priv.lw_type;
+  }
+
+  return data;
+}
+
+/**
+ * GCal→Sheet 定期同期（トリガーで実行）
+ */
+function syncFromGcalToSheet() {
+  const lock = LockService.getDocumentLock();
+  try {
+    lock.waitLock(30000);
+  } catch (e) {
+    console.log('Could not obtain lock for GCal sync');
+    return;
+  }
+
+  try {
+    const syncSettings = getGcalSyncSettings_();
+    const enabled = syncSettings[GCAL_SETTINGS_KEYS.SYNC_ENABLED];
+    const calendarId = syncSettings[GCAL_SETTINGS_KEYS.CALENDAR_ID];
+
+    if (enabled !== true && enabled !== 'TRUE' && enabled !== 'true') {
+      console.log('GCal sync disabled');
+      return;
+    }
+    if (!calendarId) {
+      console.log('GCal calendar ID not set');
+      return;
+    }
+
+    const settings = getSettings_();
+    const loopGuard = Number(syncSettings[GCAL_SETTINGS_KEYS.LOOP_GUARD_SECONDS] || 30);
+
+    // 同期範囲を計算（基準月〜翌月末+7日）
+    const [y, m] = settings.baseMonth.split('-').map(Number);
+    const rangeStart = new Date(y, m - 1, 1);
+    const rangeEnd = new Date(y, m + 1, 7); // 翌月末+7日程度
+
+    const timeMin = rangeStart.toISOString();
+    const timeMax = rangeEnd.toISOString();
+
+    console.log('GCal sync range:', timeMin, '-', timeMax);
+
+    // Calendar API で取得
+    const collected = [];
+    let pageToken = null;
+    const syncToken = syncSettings[GCAL_SETTINGS_KEYS.LAST_SYNC_TOKEN] || '';
+
+    try {
+      do {
+        const options = {
+          singleEvents: true,
+          showDeleted: true,
+          timeMin: timeMin,
+          timeMax: timeMax,
+          maxResults: 500,
+        };
+        if (pageToken) options.pageToken = pageToken;
+        if (syncToken) options.syncToken = syncToken;
+
+        const res = Calendar.Events.list(calendarId, options);
+        (res.items || []).forEach(it => collected.push(it));
+        pageToken = res.nextPageToken;
+        if (res.nextSyncToken) {
+          setGcalSyncSetting_(GCAL_SETTINGS_KEYS.LAST_SYNC_TOKEN, res.nextSyncToken);
+        }
+      } while (pageToken);
+    } catch (err) {
+      // syncToken失効時はクリアして再取得
+      console.log('SyncToken expired, clearing and retrying...');
+      setGcalSyncSetting_(GCAL_SETTINGS_KEYS.LAST_SYNC_TOKEN, '');
+      pageToken = null;
+      do {
+        const options = {
+          singleEvents: true,
+          showDeleted: true,
+          timeMin: timeMin,
+          timeMax: timeMax,
+          maxResults: 500,
+        };
+        if (pageToken) options.pageToken = pageToken;
+
+        const res = Calendar.Events.list(calendarId, options);
+        (res.items || []).forEach(it => collected.push(it));
+        pageToken = res.nextPageToken;
+        if (res.nextSyncToken) {
+          setGcalSyncSetting_(GCAL_SETTINGS_KEYS.LAST_SYNC_TOKEN, res.nextSyncToken);
+        }
+      } while (pageToken);
+    }
+
+    console.log('GCal events collected:', collected.length);
+
+    if (collected.length === 0) {
+      setGcalSyncSetting_(GCAL_SETTINGS_KEYS.LAST_SYNC_AT, new Date().toISOString());
+      return;
+    }
+
+    // Sheet側のインデックス作成
+    const ss = SpreadsheetApp.getActive();
+    const sh = ss.getSheetByName(SHEET_EVENTS);
+    const lastRow = sh.getLastRow();
+
+    const idxByGcal = new Map();  // gcal_event_id -> row
+    const idxById = new Map();    // event_id -> row
+    const eventDataMap = new Map(); // event_id -> data
+
+    if (lastRow >= EVENTS_DATA_START_ROW) {
+      const values = sh.getRange(EVENTS_DATA_START_ROW, 1, lastRow - EVENTS_DATA_START_ROW + 1, 19).getValues();
+      values.forEach((row, i) => {
+        const rowNum = EVENTS_DATA_START_ROW + i;
+        const eventId = row[0];   // A列
+        const gcalId = row[15];   // P列 (gcal_event_id)
+        const lastModified = row[13]; // N列 (updated_at)
+
+        if (eventId) {
+          idxById.set(String(eventId), rowNum);
+          eventDataMap.set(String(eventId), {
+            last_modified_at: lastModified,
+            sync_source: row[18], // S列
+          });
+        }
+        if (gcalId) {
+          idxByGcal.set(String(gcalId), rowNum);
+        }
+      });
+    }
+
+    const now = new Date();
+    const lastSyncAt = syncSettings[GCAL_SETTINGS_KEYS.LAST_SYNC_AT];
+    const tz = settings.tz;
+
+    // 各イベントを処理
+    let updated = 0;
+    let created = 0;
+    let skipped = 0;
+
+    collected.forEach(ev => {
+      const evId = ev.id;
+      const gcalUpdated = ev.updated ? new Date(ev.updated) : null;
+
+      // extendedPropertiesからlw_event_idを取得
+      const priv = (ev.extendedProperties && ev.extendedProperties.private) || {};
+      const lwId = priv.lw_event_id || '';
+      const lwOrigin = priv.lw_origin || '';
+
+      // LW由来のイベントは、最近同期したばかりならスキップ（ループ防止）
+      if (lwOrigin === 'LW' && lastSyncAt) {
+        const dt = (now.getTime() - new Date(lastSyncAt).getTime()) / 1000;
+        if (dt < loopGuard) {
+          skipped++;
+          return;
+        }
+      }
+
+      // 紐付け
+      let rowNum = null;
+      if (lwId && idxById.has(lwId)) {
+        rowNum = idxById.get(lwId);
+      } else if (evId && idxByGcal.has(evId)) {
+        rowNum = idxByGcal.get(evId);
+      }
+
+      const gcalData = gcalEventToSheetData_(ev, calendarId);
+
+      if (rowNum) {
+        // 既存レコード → 衝突チェック（Last Write Wins）
+        const eventId = lwId || sh.getRange(rowNum, 1).getValue();
+        const existing = eventDataMap.get(String(eventId));
+        const sheetLast = existing && existing.last_modified_at ? new Date(existing.last_modified_at) : null;
+
+        if (sheetLast && gcalUpdated && sheetLast.getTime() > gcalUpdated.getTime()) {
+          // Sheetの方が新しい → スキップ
+          skipped++;
+          return;
+        }
+
+        // Sheetを更新
+        // B列:日付, C列:開始, D列:終了, F列:件名, G列:場所, H列:メモ, N列:更新日時, O列:更新者, R列:last_sync_at, S列:sync_source
+        if (gcalData.date) {
+          sh.getRange(rowNum, 2).setValue(new Date(gcalData.date + 'T00:00:00'));
+        }
+        if (gcalData.start_time !== undefined) {
+          sh.getRange(rowNum, 3).setValue(gcalData.start_time);
+        }
+        if (gcalData.end_time !== undefined) {
+          sh.getRange(rowNum, 4).setValue(gcalData.end_time);
+        }
+        sh.getRange(rowNum, 6).setValue(gcalData.title);
+        sh.getRange(rowNum, 7).setValue(gcalData.location);
+        sh.getRange(rowNum, 8).setValue(gcalData.memo);
+        sh.getRange(rowNum, 14).setValue(gcalData.last_modified_at);
+        sh.getRange(rowNum, 15).setValue(gcalData.last_modified_by);
+        sh.getRange(rowNum, 18).setValue(new Date());
+        sh.getRange(rowNum, 19).setValue(SYNC_SOURCE.GCAL);
+
+        updated++;
+      } else {
+        // 新規取り込み（LW由来でないイベント）
+        if (lwOrigin === 'LW') {
+          // LW由来だがSheetに無い → 削除された可能性、スキップ
+          skipped++;
+          return;
+        }
+
+        // GCalから新規取り込み
+        const newId = Utilities.getUuid();
+        const newRow = sh.getLastRow() + 1;
+
+        sh.getRange(newRow, 1, 1, 19).setValues([[
+          newId,                                              // A: event_id
+          gcalData.date ? new Date(gcalData.date + 'T00:00:00') : '', // B: date
+          gcalData.start_time || '',                         // C: start_time
+          gcalData.end_time || '',                           // D: end_time
+          gcalData.type || 'OTHER',                          // E: type
+          gcalData.title || '',                              // F: title
+          gcalData.location || '',                           // G: location
+          gcalData.memo || '',                               // H: memo
+          '',                                                 // I: display_order
+          'CONFIRMED',                                        // J: status
+          '',                                                 // K: month_key
+          Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'), // L: created_at
+          gcalData.last_modified_by || '',                   // M: created_by
+          gcalData.last_modified_at || '',                   // N: updated_at
+          gcalData.last_modified_by || '',                   // O: updated_by
+          gcalData.gcal_event_id,                            // P: gcal_event_id
+          gcalData.gcal_calendar_id,                         // Q: gcal_calendar_id
+          new Date(),                                         // R: last_sync_at
+          SYNC_SOURCE.GCAL                                   // S: sync_source
+        ]]);
+
+        // GCal側にlw_event_idを保存
+        try {
+          Calendar.Events.patch({
+            extendedProperties: { private: { lw_event_id: newId, lw_origin: 'LW' } }
+          }, calendarId, evId);
+        } catch (e) {
+          console.log('Could not update extendedProperties:', e.message);
+        }
+
+        created++;
+      }
+    });
+
+    console.log('GCal sync completed - updated:', updated, 'created:', created, 'skipped:', skipped);
+    setGcalSyncSetting_(GCAL_SETTINGS_KEYS.LAST_SYNC_AT, now.toISOString());
+
+  } catch (e) {
+    console.error('syncFromGcalToSheet error:', e);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/**
+ * GCal同期トリガーをインストール
+ */
+function installGcalSyncTrigger() {
+  // 既存トリガー削除
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'syncFromGcalToSheet') {
+      ScriptApp.deleteTrigger(t);
+    }
+  });
+
+  // 5分おきに実行
+  ScriptApp.newTrigger('syncFromGcalToSheet')
+    .timeBased()
+    .everyMinutes(5)
+    .create();
+
+  console.log('GCal sync trigger installed (every 5 minutes)');
+  return { ok: true, message: 'Trigger installed' };
+}
+
+/**
+ * GCal同期トリガーを削除
+ */
+function uninstallGcalSyncTrigger() {
+  let removed = 0;
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'syncFromGcalToSheet') {
+      ScriptApp.deleteTrigger(t);
+      removed++;
+    }
+  });
+  console.log('GCal sync trigger removed:', removed);
+  return { ok: true, removed: removed };
+}
+
+/**
+ * GCal同期の初期設定をSettingsシートに追加
+ */
+function setupGcalSyncSettings(calendarId) {
+  if (!calendarId) {
+    return { ok: false, error: 'Calendar ID is required' };
+  }
+
+  setGcalSyncSetting_(GCAL_SETTINGS_KEYS.CALENDAR_ID, calendarId);
+  setGcalSyncSetting_(GCAL_SETTINGS_KEYS.SYNC_ENABLED, 'TRUE');
+  setGcalSyncSetting_(GCAL_SETTINGS_KEYS.LOOP_GUARD_SECONDS, 30);
+
+  console.log('GCal sync settings configured for calendar:', calendarId);
+  return { ok: true, calendarId: calendarId };
+}
+
+/**
+ * 既存の全イベントをGCalへ一括同期
+ */
+function syncAllEventsToGcal() {
+  const syncSettings = getGcalSyncSettings_();
+  const enabled = syncSettings[GCAL_SETTINGS_KEYS.SYNC_ENABLED];
+  const calendarId = syncSettings[GCAL_SETTINGS_KEYS.CALENDAR_ID];
+
+  if (enabled !== true && enabled !== 'TRUE' && enabled !== 'true') {
+    return { ok: false, error: 'GCal sync is disabled' };
+  }
+  if (!calendarId) {
+    return { ok: false, error: 'Calendar ID not set' };
+  }
+
+  const settings = getSettings_();
+  const range = getEditableRange_(settings);
+
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(SHEET_EVENTS);
+  const lastRow = sh.getLastRow();
+
+  if (lastRow < EVENTS_DATA_START_ROW) {
+    return { ok: true, synced: 0 };
+  }
+
+  const values = sh.getRange(EVENTS_DATA_START_ROW, 1, lastRow - EVENTS_DATA_START_ROW + 1, 19).getValues();
+  let synced = 0;
+  let errors = 0;
+
+  values.forEach((row, i) => {
+    const rowNum = EVENTS_DATA_START_ROW + i;
+    const eventId = row[0];
+    const dateVal = row[1];
+    const gcalEventId = row[15];
+
+    // 日付を文字列に変換
+    let dateStr = '';
+    if (dateVal instanceof Date) {
+      dateStr = formatISODate_(dateVal);
+    } else if (dateVal) {
+      dateStr = String(dateVal).substring(0, 10);
+    }
+
+    // 編集可能範囲内のみ同期
+    if (!dateStr || dateStr < range.fromISO || dateStr > range.toISO) {
+      return;
+    }
+
+    const eventData = {
+      event_id: eventId,
+      date: dateStr,
+      start_time: row[2] || '',
+      end_time: row[3] || '',
+      type: row[4] || '',
+      title: row[5] || '',
+      location: row[6] || '',
+      memo: row[7] || '',
+      status: row[9] || 'CONFIRMED',
+      gcal_event_id: gcalEventId || '',
+      is_all_day: !row[2] && !row[3],
+    };
+
+    const result = syncOneEventToGcal_(eventData, calendarId);
+
+    if (result.gcal_event_id && result.gcal_event_id !== gcalEventId) {
+      sh.getRange(rowNum, 16).setValue(result.gcal_event_id);
+      sh.getRange(rowNum, 17).setValue(calendarId);
+      sh.getRange(rowNum, 18).setValue(new Date());
+      sh.getRange(rowNum, 19).setValue(SYNC_SOURCE.SYSTEM);
+    }
+
+    if (result.error) {
+      errors++;
+    } else {
+      synced++;
+    }
+  });
+
+  console.log('Bulk sync completed - synced:', synced, 'errors:', errors);
+  return { ok: true, synced: synced, errors: errors };
 }
