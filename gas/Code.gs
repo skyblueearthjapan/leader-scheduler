@@ -22,6 +22,28 @@ const SETTINGS_TZ_CELL = 'B7';              // Asia/Tokyo
 const EVENTS_HEADER_ROW = 5;
 const EVENTS_DATA_START_ROW = 6;
 
+// Events列構成:
+// A(1): event_id
+// B(2): date
+// C(3): start_time
+// D(4): end_time
+// E(5): type
+// F(6): title
+// G(7): location
+// H(8): memo
+// I(9): display_order
+// J(10): status
+// K(11): month_key
+// L(12): created_at
+// M(13): created_by
+// N(14): updated_at
+// O(15): updated_by
+// P(16): gcal_event_id
+// Q(17): gcal_calendar_id
+// R(18): last_sync_at
+// S(19): sync_source
+// T(20): revision (applyPatch用)
+
 const USERS_HEADER_ROW = 5;
 const USERS_DATA_START_ROW = 6;
 
@@ -662,8 +684,8 @@ function applyPatch(recordId, patch, clientRevision) {
       ]]);
       // 時刻列をテキスト形式に
       sh.getRange(newRow, 3, 1, 2).setNumberFormat('@');
-      // P列にリビジョンを書き込み
-      sh.getRange(newRow, 16).setValue(newRevision);
+      // T列(20)にリビジョンを書き込み（P-S列はGCal同期用）
+      sh.getRange(newRow, 20).setValue(newRevision);
 
       return { ok: true, recordId: newId, serverRevision: newRevision };
 
@@ -679,8 +701,8 @@ function applyPatch(recordId, patch, clientRevision) {
       const targetDate = patch.date || formatISODate_(currentDate instanceof Date ? currentDate : new Date(currentDate));
       assertCanEdit_(user, settings, targetDate);
 
-      // サーバ側リビジョン取得（O列、なければ0）
-      const serverRevision = Number(sh.getRange(rowNum, 16).getValue()) || 0;
+      // サーバ側リビジョン取得（T列(20)、なければ0）
+      const serverRevision = Number(sh.getRange(rowNum, 20).getValue()) || 0;
 
       // リビジョンチェック（クライアントが古ければ競合）
       if (clientRevision < serverRevision) {
@@ -720,7 +742,7 @@ function applyPatch(recordId, patch, clientRevision) {
       const newRevision = serverRevision + 1;
       sh.getRange(rowNum, 14).setValue(Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'));
       sh.getRange(rowNum, 15).setValue(user.email);
-      sh.getRange(rowNum, 16).setValue(newRevision);
+      sh.getRange(rowNum, 20).setValue(newRevision); // T列(20)にリビジョン
 
       return { ok: true, serverRevision: newRevision };
     }
@@ -1294,6 +1316,35 @@ function buildGcalEventResource_(e) {
 }
 
 /**
+ * lw_event_idでGCalイベントを検索
+ */
+function findGcalEventByLwId_(calendarId, lwEventId) {
+  if (!lwEventId) return null;
+
+  try {
+    // 直近3ヶ月を検索範囲とする
+    const now = new Date();
+    const timeMin = new Date(now.getFullYear(), now.getMonth() - 1, 1).toISOString();
+    const timeMax = new Date(now.getFullYear(), now.getMonth() + 2, 0).toISOString();
+
+    const events = Calendar.Events.list(calendarId, {
+      privateExtendedProperty: 'lw_event_id=' + lwEventId,
+      timeMin: timeMin,
+      timeMax: timeMax,
+      singleEvents: true,
+      maxResults: 1
+    });
+
+    if (events.items && events.items.length > 0) {
+      return events.items[0];
+    }
+  } catch (err) {
+    console.log('Error searching for event by lw_event_id:', err.message);
+  }
+  return null;
+}
+
+/**
  * 1件のSheet予定をGCalへ同期（作成/更新/削除）
  */
 function syncOneEventToGcal_(e, calendarId) {
@@ -1315,6 +1366,20 @@ function syncOneEventToGcal_(e, calendarId) {
   const resource = buildGcalEventResource_(e);
 
   if (!e.gcal_event_id) {
+    // まずlw_event_idで既存イベントを検索（重複防止）
+    const existing = findGcalEventByLwId_(calendarId, e.event_id);
+    if (existing) {
+      console.log('Found existing GCal event by lw_event_id:', existing.id);
+      // 既存イベントを更新
+      try {
+        const patched = Calendar.Events.patch(resource, calendarId, existing.id);
+        console.log('GCal event updated (found by lw_id):', patched.id);
+        return { gcal_event_id: patched.id };
+      } catch (err) {
+        console.log('GCal patch error on found event:', err.message);
+      }
+    }
+
     // 新規作成
     try {
       const created = Calendar.Events.insert(resource, calendarId);
@@ -1332,8 +1397,22 @@ function syncOneEventToGcal_(e, calendarId) {
       return { gcal_event_id: patched.id };
     } catch (err) {
       console.error('GCal patch error:', err);
-      // 存在しない場合は新規作成を試みる
+      // 404の場合、lw_event_idで検索してから作成
       if (err.message && err.message.includes('404')) {
+        // まず既存イベントを検索
+        const existing = findGcalEventByLwId_(calendarId, e.event_id);
+        if (existing) {
+          console.log('Found existing GCal event on 404:', existing.id);
+          try {
+            const patched = Calendar.Events.patch(resource, calendarId, existing.id);
+            console.log('GCal event updated (after 404):', patched.id);
+            return { gcal_event_id: patched.id };
+          } catch (e2) {
+            console.log('GCal patch error after 404:', e2.message);
+          }
+        }
+
+        // 見つからなければ新規作成
         try {
           const created = Calendar.Events.insert(resource, calendarId);
           console.log('GCal event re-created:', created.id);
@@ -1746,6 +1825,138 @@ function setupGcalSyncSettings(calendarId) {
 
   console.log('GCal sync settings configured for calendar:', calendarId);
   return { ok: true, calendarId: calendarId };
+}
+
+/**
+ * GCal上の重複イベントをクリーンアップ（同じlw_event_idを持つイベント）
+ */
+function cleanupDuplicateGcalEvents() {
+  const syncSettings = getGcalSyncSettings_();
+  const calendarId = syncSettings[GCAL_SETTINGS_KEYS.CALENDAR_ID];
+
+  if (!calendarId) {
+    return { ok: false, error: 'Calendar ID not set' };
+  }
+
+  const settings = getSettings_();
+  const [y, m] = settings.baseMonth.split('-').map(Number);
+  const timeMin = new Date(y, m - 1, 1).toISOString();
+  const timeMax = new Date(y, m + 2, 0).toISOString();
+
+  // GCalから全イベント取得
+  const events = [];
+  let pageToken = null;
+  do {
+    const options = {
+      singleEvents: true,
+      timeMin: timeMin,
+      timeMax: timeMax,
+      maxResults: 500,
+    };
+    if (pageToken) options.pageToken = pageToken;
+
+    const res = Calendar.Events.list(calendarId, options);
+    (res.items || []).forEach(it => events.push(it));
+    pageToken = res.nextPageToken;
+  } while (pageToken);
+
+  // lw_event_id毎にグルーピング
+  const byLwId = new Map();
+  events.forEach(ev => {
+    const priv = (ev.extendedProperties && ev.extendedProperties.private) || {};
+    const lwId = priv.lw_event_id || '';
+    if (lwId) {
+      if (!byLwId.has(lwId)) {
+        byLwId.set(lwId, []);
+      }
+      byLwId.get(lwId).push(ev);
+    }
+  });
+
+  // 重複を削除（最新のものを残す）
+  let deleted = 0;
+  byLwId.forEach((evList, lwId) => {
+    if (evList.length > 1) {
+      // updatedが最新のものを残す
+      evList.sort((a, b) => new Date(b.updated) - new Date(a.updated));
+      const keep = evList[0];
+      console.log('Keeping event:', keep.id, 'for lw_event_id:', lwId);
+
+      for (let i = 1; i < evList.length; i++) {
+        try {
+          Calendar.Events.remove(calendarId, evList[i].id);
+          console.log('Deleted duplicate event:', evList[i].id);
+          deleted++;
+        } catch (err) {
+          console.log('Could not delete duplicate:', err.message);
+        }
+      }
+    }
+  });
+
+  console.log('Cleanup completed, deleted:', deleted, 'duplicates');
+  return { ok: true, deleted: deleted };
+}
+
+/**
+ * GCal同期の診断情報を取得
+ */
+function diagnoseGcalSync() {
+  const syncSettings = getGcalSyncSettings_();
+  const enabled = syncSettings[GCAL_SETTINGS_KEYS.SYNC_ENABLED];
+  const calendarId = syncSettings[GCAL_SETTINGS_KEYS.CALENDAR_ID];
+
+  const result = {
+    settings: {
+      enabled: enabled,
+      calendarId: calendarId,
+      loopGuardSeconds: syncSettings[GCAL_SETTINGS_KEYS.LOOP_GUARD_SECONDS],
+      lastSyncAt: syncSettings[GCAL_SETTINGS_KEYS.LAST_SYNC_AT],
+    },
+    issues: []
+  };
+
+  if (!enabled || (enabled !== true && enabled !== 'TRUE' && enabled !== 'true')) {
+    result.issues.push('同期が無効になっています（gcal_sync_enabledをTRUEに設定してください）');
+  }
+
+  if (!calendarId) {
+    result.issues.push('カレンダーIDが設定されていません（gcal_calendar_idを設定してください）');
+  } else {
+    // カレンダーにアクセスできるか確認
+    try {
+      Calendar.Events.list(calendarId, { maxResults: 1 });
+      result.calendarAccess = true;
+    } catch (err) {
+      result.calendarAccess = false;
+      if (err.message.includes('403') || err.message.includes('forbidden')) {
+        result.issues.push('カレンダーへの書き込み権限がありません。「予定の変更」権限を付与してください。');
+      } else {
+        result.issues.push('カレンダーにアクセスできません: ' + err.message);
+      }
+    }
+  }
+
+  // シートのデータ確認
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(SHEET_EVENTS);
+  const lastRow = sh.getLastRow();
+
+  if (lastRow >= EVENTS_DATA_START_ROW) {
+    const sampleRow = sh.getRange(EVENTS_DATA_START_ROW, 1, 1, 20).getValues()[0];
+    result.sampleColumns = {
+      'A(event_id)': sampleRow[0],
+      'P(gcal_event_id)': sampleRow[15],
+      'Q(gcal_calendar_id)': sampleRow[16],
+      'R(last_sync_at)': sampleRow[17],
+      'S(sync_source)': sampleRow[18],
+      'T(revision)': sampleRow[19],
+    };
+  }
+
+  result.ok = result.issues.length === 0;
+  console.log('Diagnosis result:', JSON.stringify(result, null, 2));
+  return result;
 }
 
 /**
