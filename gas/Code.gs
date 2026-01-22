@@ -305,7 +305,8 @@ function isTrue_(v) {
 
 /**
  * 指定期間のイベントを取得（統合ビュー）
- * board_列があればそれを優先、なければgcal_列を使用
+ * - 全件必ず表示（hiddenによる除外なし）
+ * - board_列は差し替え/追記として扱う（イベント自体は消さない）
  */
 function listBoardEvents_(fromISO, toISO) {
   const ss = SpreadsheetApp.getActive();
@@ -342,19 +343,36 @@ function listBoardEvents_(fromISO, toISO) {
     if (isNaN(dd.getTime())) continue;
     if (dd < from || dd > to) continue;
 
-    // 削除済み・非表示チェック
+    // 削除済みチェック（GCalで削除されたものは非表示）
     const isDeleted = isTrue_(r[10]);  // K: gcal_is_deleted
-    const isHidden = isTrue_(r[17]);   // R: hidden
-    if (isDeleted || isHidden) continue;
+    if (isDeleted) continue;
 
-    // 統合ビュー（board優先）
+    // ※ hiddenによる除外は行わない（全件表示）
+
+    // BOARD上書き
     const boardTitle = String(r[11] || '').trim();      // L: board_title
     const boardLocation = String(r[12] || '').trim();   // M: board_location
     const boardMemo = String(r[13] || '').trim();       // N: board_memo
 
+    // GCal由来
     const gcalTitle = String(r[5] || '').trim();        // F: gcal_title
     const gcalLocation = String(r[6] || '').trim();     // G: gcal_location
     const gcalDescription = String(r[7] || '').trim();  // H: gcal_description
+
+    // 表示用（boardは差し替え、イベント自体は常に表示）
+    const titleForBoard = boardTitle || gcalTitle;
+    const locationForBoard = boardLocation || gcalLocation;
+
+    // メモは合成（board追記 + Google説明）
+    // UIで別々に表示したい場合は board_memo と gcal_description を参照
+    let memoForBoard = '';
+    if (boardMemo && gcalDescription) {
+      memoForBoard = boardMemo + '\n――――\n' + gcalDescription;
+    } else if (boardMemo) {
+      memoForBoard = boardMemo;
+    } else if (gcalDescription) {
+      memoForBoard = gcalDescription;
+    }
 
     out.push({
       gcal_event_id: String(gcalEventId),
@@ -363,24 +381,23 @@ function listBoardEvents_(fromISO, toISO) {
       end_time: asTimeStr_(r[3]),     // D: end_time
       is_all_day: isTrue_(r[4]),      // E: is_all_day
 
-      // 表示用（board優先）
-      title: boardTitle || gcalTitle,
-      location: boardLocation || gcalLocation,
-      memo: boardMemo,
+      // 表示用（board差し替え済み）
+      title: titleForBoard,
+      location: locationForBoard,
+      memo: memoForBoard,
 
-      // 元データ（UI側で参照可能）
+      // 元データ（UI側で必要なら参照）
       gcal_title: gcalTitle,
       gcal_location: gcalLocation,
       gcal_description: gcalDescription,
 
-      // BOARD編集可能フィールド
+      // BOARD編集フィールド
       board_title: boardTitle,
       board_location: boardLocation,
       board_memo: boardMemo,
       type: String(r[14] || '').trim(),           // O: type
       display_order: Number(r[15] || 0),          // P: display_order
       pin: isTrue_(r[16]),                        // Q: pin
-      hidden: isHidden,                           // R: hidden
 
       gcal_status: String(r[9] || '').trim(),     // J: gcal_status
       _row: EVENTS_DATA_START_ROW + i
@@ -665,7 +682,8 @@ function writeGcalColumnsOnly_(sh, rowNum, patch) {
 
 /**
  * BOARD編集保存
- * @param {Object} payload - { gcal_event_id, board_title?, board_location?, board_memo?, type?, display_order?, pin?, hidden? }
+ * @param {Object} payload - { gcal_event_id, board_title?, board_location?, board_memo?, type?, display_order?, pin? }
+ * ※ hidden は無効（全件表示のため）
  */
 function saveBoardOverride(payload) {
   const lock = LockService.getDocumentLock();
@@ -749,9 +767,7 @@ function saveBoardOverride(payload) {
     if (payload.pin !== undefined) {
       sh.getRange(rowNum, 17).setValue(isTrue_(payload.pin));  // Q: pin
     }
-    if (payload.hidden !== undefined) {
-      sh.getRange(rowNum, 18).setValue(isTrue_(payload.hidden));  // R: hidden
-    }
+    // ※ hidden は無効化（全件表示のため、R列は使用しない）
 
     // 更新日時・更新者
     sh.getRange(rowNum, 19).setValue(Utilities.formatDate(now, tz, 'yyyy-MM-dd HH:mm:ss'));  // S: board_updated_at
