@@ -1099,8 +1099,55 @@ function setDaySetting(dateISO, type, memo) {
 }
 
 // =============================================================================
-// 診断・ヘルスチェック
+// 診断・ヘルスチェック・ユーティリティ
 // =============================================================================
+
+/**
+ * 03_Eventsシートのデータをすべてクリア（ヘッダー行は残す）
+ */
+function clearAllEvents() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(SHEET_EVENTS);
+
+  if (!sh) {
+    return { ok: false, error: 'SHEET_NOT_FOUND' };
+  }
+
+  const lastRow = sh.getLastRow();
+  if (lastRow < EVENTS_DATA_START_ROW) {
+    return { ok: true, cleared: 0, message: 'データなし' };
+  }
+
+  const numRows = lastRow - EVENTS_DATA_START_ROW + 1;
+  sh.deleteRows(EVENTS_DATA_START_ROW, numRows);
+
+  // syncTokenもクリア（次回フル同期のため）
+  setGcalSyncSetting_(GCAL_SETTINGS_KEYS.SYNC_TOKEN, '');
+
+  console.log('Cleared', numRows, 'rows from Events');
+  return { ok: true, cleared: numRows };
+}
+
+/**
+ * BOARDリセット＆再同期（クリア→同期を一括実行）
+ */
+function resetAndResync() {
+  console.log('=== Starting reset and resync ===');
+
+  // Step 1: クリア
+  const clearResult = clearAllEvents();
+  console.log('Clear result:', JSON.stringify(clearResult));
+
+  // Step 2: 再同期
+  const syncResult = syncFromGcalToSheet();
+  console.log('Sync result:', JSON.stringify(syncResult));
+
+  return {
+    ok: true,
+    cleared: clearResult.cleared || 0,
+    synced: (syncResult.created || 0) + (syncResult.updated || 0)
+  };
+}
 
 function diagnoseGcalSync() {
   const syncSettings = getGcalSyncSettings_();
