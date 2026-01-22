@@ -1262,23 +1262,27 @@ function buildSyncHash_(e) {
 }
 
 /**
- * Sheet予定をGCalイベントリソースに変換
+ * Sheet予定をGCalイベントリソースに変換（新規作成用）
  */
-function buildGcalEventResource_(e) {
+function buildGcalEventResource_(e, forUpdate) {
   const tz = Session.getScriptTimeZone();
 
   const resource = {
-    summary: e.title || '',
+    summary: e.title || '（件名なし）',
     location: e.location || '',
     description: e.memo || '',
-    extendedProperties: {
+  };
+
+  // 新規作成時のみextendedPropertiesを設定（更新時は既存を保持）
+  if (!forUpdate) {
+    resource.extendedProperties = {
       private: {
         lw_event_id: String(e.event_id || ''),
         lw_origin: 'LW',
         lw_type: e.type || '',
       }
-    }
-  };
+    };
+  }
 
   // 終日 or 時間あり
   const isAllDay = e.is_all_day || (!e.start_time && !e.end_time);
@@ -1286,13 +1290,24 @@ function buildGcalEventResource_(e) {
   if (isAllDay) {
     // 終日：end.date は翌日が仕様
     const startDate = String(e.date);
+    if (!startDate || !/^\d{4}-\d{2}-\d{2}$/.test(startDate)) {
+      console.log('Invalid date format:', startDate);
+      return null;
+    }
     const endDateObj = new Date(startDate + 'T00:00:00');
     endDateObj.setDate(endDateObj.getDate() + 1);
     resource.start = { date: startDate };
     resource.end = { date: formatISODate_(endDateObj) };
   } else {
-    const start = `${e.date}T${e.start_time || '00:00'}:00`;
-    const end = e.end_time ? `${e.date}T${e.end_time}:00` : start;
+    const dateStr = String(e.date);
+    if (!dateStr || !/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+      console.log('Invalid date format:', dateStr);
+      return null;
+    }
+    const startTime = e.start_time || '00:00';
+    const endTime = e.end_time || startTime;
+    const start = `${dateStr}T${startTime}:00`;
+    const end = `${dateStr}T${endTime}:00`;
     resource.start = { dateTime: start, timeZone: tz };
     resource.end = { dateTime: end, timeZone: tz };
   }
@@ -1345,10 +1360,63 @@ function findGcalEventByLwId_(calendarId, lwEventId) {
 }
 
 /**
+ * GCalイベントを安全に更新（get→update方式）
+ */
+function updateGcalEventSafe_(calendarId, gcalEventId, sheetEvent) {
+  try {
+    // 既存イベントを取得
+    const existing = Calendar.Events.get(calendarId, gcalEventId);
+
+    // 基本情報を更新
+    existing.summary = sheetEvent.title || '（件名なし）';
+    existing.location = sheetEvent.location || '';
+    existing.description = sheetEvent.memo || '';
+
+    // 日時を更新（形式を合わせる）
+    const tz = Session.getScriptTimeZone();
+    const isAllDay = sheetEvent.is_all_day || (!sheetEvent.start_time && !sheetEvent.end_time);
+    const dateStr = String(sheetEvent.date);
+
+    if (isAllDay) {
+      const endDateObj = new Date(dateStr + 'T00:00:00');
+      endDateObj.setDate(endDateObj.getDate() + 1);
+      existing.start = { date: dateStr };
+      existing.end = { date: formatISODate_(endDateObj) };
+    } else {
+      const startTime = sheetEvent.start_time || '00:00';
+      const endTime = sheetEvent.end_time || startTime;
+      existing.start = { dateTime: `${dateStr}T${startTime}:00`, timeZone: tz };
+      existing.end = { dateTime: `${dateStr}T${endTime}:00`, timeZone: tz };
+    }
+
+    // 色を更新
+    const colorMap = {
+      'MEET': '9', 'MEETING': '9', 'VIP': '11', 'VISIT': '6',
+      'OUT': '2', 'TRAVEL': '5', 'DINNER': '3', 'HOLIDAY': '8',
+    };
+    if (sheetEvent.type && colorMap[sheetEvent.type]) {
+      existing.colorId = colorMap[sheetEvent.type];
+    }
+
+    // 更新を実行
+    const updated = Calendar.Events.update(existing, calendarId, gcalEventId);
+    return { success: true, id: updated.id };
+  } catch (err) {
+    return { success: false, error: err.message };
+  }
+}
+
+/**
  * 1件のSheet予定をGCalへ同期（作成/更新/削除）
  */
 function syncOneEventToGcal_(e, calendarId) {
   if (!calendarId) return { gcal_event_id: '' };
+
+  // 入力データの検証
+  if (!e.date || !/^\d{4}-\d{2}-\d{2}$/.test(String(e.date))) {
+    console.log('Skipping event with invalid date:', e.event_id, e.date);
+    return { gcal_event_id: e.gcal_event_id || '', error: 'Invalid date' };
+  }
 
   // 削除フラグの場合
   if (e.is_deleted) {
@@ -1363,66 +1431,54 @@ function syncOneEventToGcal_(e, calendarId) {
     return { gcal_event_id: e.gcal_event_id || '' };
   }
 
-  const resource = buildGcalEventResource_(e);
-
-  if (!e.gcal_event_id) {
-    // まずlw_event_idで既存イベントを検索（重複防止）
-    const existing = findGcalEventByLwId_(calendarId, e.event_id);
-    if (existing) {
-      console.log('Found existing GCal event by lw_event_id:', existing.id);
-      // 既存イベントを更新
-      try {
-        const patched = Calendar.Events.patch(resource, calendarId, existing.id);
-        console.log('GCal event updated (found by lw_id):', patched.id);
-        return { gcal_event_id: patched.id };
-      } catch (err) {
-        console.log('GCal patch error on found event:', err.message);
-      }
+  // gcal_event_idがある場合は更新を試みる
+  if (e.gcal_event_id) {
+    const updateResult = updateGcalEventSafe_(calendarId, e.gcal_event_id, e);
+    if (updateResult.success) {
+      console.log('GCal event updated:', updateResult.id);
+      return { gcal_event_id: updateResult.id };
     }
 
-    // 新規作成
-    try {
-      const created = Calendar.Events.insert(resource, calendarId);
-      console.log('GCal event created:', created.id);
-      return { gcal_event_id: created.id };
-    } catch (err) {
-      console.error('GCal insert error:', err);
-      return { gcal_event_id: '', error: err.message };
-    }
-  } else {
-    // 更新
-    try {
-      const patched = Calendar.Events.patch(resource, calendarId, e.gcal_event_id);
-      console.log('GCal event updated:', patched.id);
-      return { gcal_event_id: patched.id };
-    } catch (err) {
-      console.error('GCal patch error:', err);
-      // 404の場合、lw_event_idで検索してから作成
-      if (err.message && err.message.includes('404')) {
-        // まず既存イベントを検索
-        const existing = findGcalEventByLwId_(calendarId, e.event_id);
-        if (existing) {
-          console.log('Found existing GCal event on 404:', existing.id);
-          try {
-            const patched = Calendar.Events.patch(resource, calendarId, existing.id);
-            console.log('GCal event updated (after 404):', patched.id);
-            return { gcal_event_id: patched.id };
-          } catch (e2) {
-            console.log('GCal patch error after 404:', e2.message);
-          }
-        }
-
-        // 見つからなければ新規作成
-        try {
-          const created = Calendar.Events.insert(resource, calendarId);
-          console.log('GCal event re-created:', created.id);
-          return { gcal_event_id: created.id };
-        } catch (e2) {
-          return { gcal_event_id: '', error: e2.message };
+    // 404エラーの場合のみ、検索して再紐付けを試みる
+    if (updateResult.error && updateResult.error.includes('404')) {
+      console.log('GCal event not found (404), searching by lw_event_id...');
+      const existing = findGcalEventByLwId_(calendarId, e.event_id);
+      if (existing) {
+        const retryResult = updateGcalEventSafe_(calendarId, existing.id, e);
+        if (retryResult.success) {
+          console.log('GCal event updated (found by lw_id):', retryResult.id);
+          return { gcal_event_id: retryResult.id };
         }
       }
-      return { gcal_event_id: e.gcal_event_id, error: err.message };
+    } else {
+      console.log('GCal update error:', updateResult.error);
     }
+  }
+
+  // lw_event_idで既存イベントを検索（重複防止）
+  const existing = findGcalEventByLwId_(calendarId, e.event_id);
+  if (existing) {
+    console.log('Found existing GCal event by lw_event_id:', existing.id);
+    const updateResult = updateGcalEventSafe_(calendarId, existing.id, e);
+    if (updateResult.success) {
+      console.log('GCal event updated (found):', updateResult.id);
+      return { gcal_event_id: updateResult.id };
+    }
+  }
+
+  // 新規作成
+  const resource = buildGcalEventResource_(e, false);
+  if (!resource) {
+    return { gcal_event_id: '', error: 'Invalid event data' };
+  }
+
+  try {
+    const created = Calendar.Events.insert(resource, calendarId);
+    console.log('GCal event created:', created.id);
+    return { gcal_event_id: created.id };
+  } catch (err) {
+    console.error('GCal insert error:', err.message, 'Event:', e.event_id);
+    return { gcal_event_id: '', error: err.message };
   }
 }
 
@@ -1825,6 +1881,112 @@ function setupGcalSyncSettings(calendarId) {
 
   console.log('GCal sync settings configured for calendar:', calendarId);
   return { ok: true, calendarId: calendarId };
+}
+
+/**
+ * シートのgcal_event_idをすべてクリア
+ */
+function clearAllGcalEventIds() {
+  const ss = SpreadsheetApp.getActive();
+  const sh = ss.getSheetByName(SHEET_EVENTS);
+  const lastRow = sh.getLastRow();
+
+  if (lastRow < EVENTS_DATA_START_ROW) {
+    return { ok: true, cleared: 0 };
+  }
+
+  const numRows = lastRow - EVENTS_DATA_START_ROW + 1;
+  // P〜S列（16〜19）をクリア
+  sh.getRange(EVENTS_DATA_START_ROW, 16, numRows, 4).clearContent();
+
+  console.log('Cleared gcal_event_id for', numRows, 'rows');
+  return { ok: true, cleared: numRows };
+}
+
+/**
+ * GCal上のLW由来イベントをすべて削除
+ */
+function deleteAllLwEventsFromGcal() {
+  const syncSettings = getGcalSyncSettings_();
+  const calendarId = syncSettings[GCAL_SETTINGS_KEYS.CALENDAR_ID];
+
+  if (!calendarId) {
+    return { ok: false, error: 'Calendar ID not set' };
+  }
+
+  const settings = getSettings_();
+  const [y, m] = settings.baseMonth.split('-').map(Number);
+  const timeMin = new Date(y, m - 1, 1).toISOString();
+  const timeMax = new Date(y, m + 2, 0).toISOString();
+
+  // GCalから全イベント取得
+  const events = [];
+  let pageToken = null;
+  do {
+    const options = {
+      singleEvents: true,
+      timeMin: timeMin,
+      timeMax: timeMax,
+      maxResults: 500,
+    };
+    if (pageToken) options.pageToken = pageToken;
+
+    const res = Calendar.Events.list(calendarId, options);
+    (res.items || []).forEach(it => events.push(it));
+    pageToken = res.nextPageToken;
+  } while (pageToken);
+
+  // LW由来のイベントを削除
+  let deleted = 0;
+  events.forEach(ev => {
+    const priv = (ev.extendedProperties && ev.extendedProperties.private) || {};
+    if (priv.lw_origin === 'LW' || priv.lw_event_id) {
+      try {
+        Calendar.Events.remove(calendarId, ev.id);
+        console.log('Deleted LW event:', ev.id, ev.summary);
+        deleted++;
+      } catch (err) {
+        console.log('Could not delete:', err.message);
+      }
+    }
+  });
+
+  console.log('Deleted', deleted, 'LW events from GCal');
+  return { ok: true, deleted: deleted };
+}
+
+/**
+ * 完全リセット＆再同期（重複問題を解消）
+ * 1. GCalからLW由来イベントを削除
+ * 2. シートのgcal_event_idをクリア
+ * 3. シート→GCalへ新規同期
+ */
+function fullResetAndResync() {
+  console.log('=== Starting full reset and resync ===');
+
+  // Step 1: GCalからLW由来イベントを削除
+  console.log('Step 1: Deleting LW events from GCal...');
+  const deleteResult = deleteAllLwEventsFromGcal();
+  console.log('Delete result:', JSON.stringify(deleteResult));
+
+  // Step 2: シートのgcal_event_idをクリア
+  console.log('Step 2: Clearing gcal_event_ids from sheet...');
+  const clearResult = clearAllGcalEventIds();
+  console.log('Clear result:', JSON.stringify(clearResult));
+
+  // Step 3: 再同期
+  console.log('Step 3: Syncing all events to GCal...');
+  const syncResult = syncAllEventsToGcal();
+  console.log('Sync result:', JSON.stringify(syncResult));
+
+  console.log('=== Full reset and resync completed ===');
+  return {
+    ok: true,
+    deleted: deleteResult.deleted || 0,
+    cleared: clearResult.cleared || 0,
+    synced: syncResult.synced || 0,
+    errors: syncResult.errors || 0
+  };
 }
 
 /**
