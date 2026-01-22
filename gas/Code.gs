@@ -131,7 +131,8 @@ function getSettings_() {
     throw new Error('SHEET_NOT_FOUND: ' + SHEET_SETTINGS);
   }
 
-  const tz = String(sh.getRange(SETTINGS_TZ_CELL).getValue() || 'Asia/Tokyo');
+  const tzRaw = sh.getRange(SETTINGS_TZ_CELL).getValue();
+  const tz = String(tzRaw || '').trim() || 'Asia/Tokyo';
   const editableMonths = Number(sh.getRange(SETTINGS_EDITABLE_MONTHS_CELL).getValue() || 2);
 
   // 常に今月を基準月として使用（自動進行）
@@ -564,6 +565,8 @@ function syncFromGcalToSheet() {
       } else {
         // 新規行（board_列は空で作成）
         const newRow = sh.getLastRow() + 1;
+        // C,D列をテキスト形式に設定（時刻の自動変換防止）
+        sh.getRange(newRow, 3, 1, 2).setNumberFormat('@');
         sh.getRange(newRow, 1, 1, 21).setValues([[
           patch.gcal_event_id,      // A
           patch.date,               // B
@@ -654,10 +657,10 @@ function writeGcalColumnsOnly_(sh, rowNum, patch) {
   if (patch.date) {
     sh.getRange(rowNum, 2).setValue(patch.date);
   }
-  // C(3): start_time
-  sh.getRange(rowNum, 3).setValue(patch.start_time || '');
-  // D(4): end_time
-  sh.getRange(rowNum, 4).setValue(patch.end_time || '');
+  // C(3): start_time - テキスト形式で保存（時刻の自動変換防止）
+  sh.getRange(rowNum, 3).setNumberFormat('@').setValue(patch.start_time || '');
+  // D(4): end_time - テキスト形式で保存
+  sh.getRange(rowNum, 4).setNumberFormat('@').setValue(patch.end_time || '');
   // E(5): is_all_day
   sh.getRange(rowNum, 5).setValue(patch.is_all_day || false);
   // F(6): gcal_title
