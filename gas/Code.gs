@@ -1307,13 +1307,18 @@ function buildGcalEventResource_(e, forUpdate) {
     const startTime = e.start_time || '00:00';
     let endTime = e.end_time || startTime;
 
-    // 終了時刻が開始時刻より早い場合、または00:00の場合は翌日とみなす
+    // 時刻を分に変換して比較（より確実な方法）
+    const startMinutes = timeToMinutes_(startTime);
+    const endMinutes = timeToMinutes_(endTime);
+
+    // 終了時刻が開始時刻より早い場合は翌日とみなす
     let endDateStr = dateStr;
-    if (endTime && startTime && endTime <= startTime) {
+    if (endMinutes <= startMinutes && endMinutes < 720) {  // 720分 = 12:00
       // 翌日の日付を計算
       const nextDay = new Date(dateStr + 'T00:00:00');
       nextDay.setDate(nextDay.getDate() + 1);
       endDateStr = Utilities.formatDate(nextDay, tz, 'yyyy-MM-dd');
+      console.log('Midnight crossing detected:', startTime, '->', endTime, 'endDate changed to:', endDateStr);
     }
 
     const start = `${dateStr}T${startTime}:00`;
@@ -1396,9 +1401,13 @@ function updateGcalEventSafe_(calendarId, gcalEventId, sheetEvent) {
       const startTime = sheetEvent.start_time || '00:00';
       let endTime = sheetEvent.end_time || startTime;
 
+      // 時刻を分に変換して比較
+      const startMinutes = timeToMinutes_(startTime);
+      const endMinutes = timeToMinutes_(endTime);
+
       // 終了時刻が開始時刻より早い場合は翌日とみなす
       let endDateStr = dateStr;
-      if (endTime && startTime && endTime <= startTime) {
+      if (endMinutes <= startMinutes && endMinutes < 720) {
         const nextDay = new Date(dateStr + 'T00:00:00');
         nextDay.setDate(nextDay.getDate() + 1);
         endDateStr = Utilities.formatDate(nextDay, tz, 'yyyy-MM-dd');
@@ -2249,6 +2258,17 @@ function syncAllEventsToGcal() {
 
   console.log('Bulk sync completed - synced:', synced, 'errors:', errors);
   return { ok: true, synced: synced, errors: errors };
+}
+
+/**
+ * 時刻文字列を分に変換（00:00 = 0, 23:59 = 1439）
+ */
+function timeToMinutes_(timeStr) {
+  if (!timeStr) return 0;
+  const parts = timeStr.split(':');
+  const hours = parseInt(parts[0], 10) || 0;
+  const minutes = parseInt(parts[1], 10) || 0;
+  return hours * 60 + minutes;
 }
 
 /**
