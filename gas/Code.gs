@@ -1305,9 +1305,19 @@ function buildGcalEventResource_(e, forUpdate) {
       return null;
     }
     const startTime = e.start_time || '00:00';
-    const endTime = e.end_time || startTime;
+    let endTime = e.end_time || startTime;
+
+    // 終了時刻が開始時刻より早い場合、または00:00の場合は翌日とみなす
+    let endDateStr = dateStr;
+    if (endTime && startTime && endTime <= startTime) {
+      // 翌日の日付を計算
+      const nextDay = new Date(dateStr + 'T00:00:00');
+      nextDay.setDate(nextDay.getDate() + 1);
+      endDateStr = Utilities.formatDate(nextDay, tz, 'yyyy-MM-dd');
+    }
+
     const start = `${dateStr}T${startTime}:00`;
-    const end = `${dateStr}T${endTime}:00`;
+    const end = `${endDateStr}T${endTime}:00`;
     resource.start = { dateTime: start, timeZone: tz };
     resource.end = { dateTime: end, timeZone: tz };
   }
@@ -1384,9 +1394,18 @@ function updateGcalEventSafe_(calendarId, gcalEventId, sheetEvent) {
       existing.end = { date: formatISODate_(endDateObj) };
     } else {
       const startTime = sheetEvent.start_time || '00:00';
-      const endTime = sheetEvent.end_time || startTime;
+      let endTime = sheetEvent.end_time || startTime;
+
+      // 終了時刻が開始時刻より早い場合は翌日とみなす
+      let endDateStr = dateStr;
+      if (endTime && startTime && endTime <= startTime) {
+        const nextDay = new Date(dateStr + 'T00:00:00');
+        nextDay.setDate(nextDay.getDate() + 1);
+        endDateStr = Utilities.formatDate(nextDay, tz, 'yyyy-MM-dd');
+      }
+
       existing.start = { dateTime: `${dateStr}T${startTime}:00`, timeZone: tz };
-      existing.end = { dateTime: `${dateStr}T${endTime}:00`, timeZone: tz };
+      existing.end = { dateTime: `${endDateStr}T${endTime}:00`, timeZone: tz };
     }
 
     // 色を更新
