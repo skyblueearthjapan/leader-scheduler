@@ -1469,6 +1469,7 @@ function syncOneEventToGcal_(e, calendarId) {
   // 新規作成
   const resource = buildGcalEventResource_(e, false);
   if (!resource) {
+    console.log('Invalid event data for:', e.event_id);
     return { gcal_event_id: '', error: 'Invalid event data' };
   }
 
@@ -1477,7 +1478,10 @@ function syncOneEventToGcal_(e, calendarId) {
     console.log('GCal event created:', created.id);
     return { gcal_event_id: created.id };
   } catch (err) {
+    // 詳細なエラーログ
     console.error('GCal insert error:', err.message, 'Event:', e.event_id);
+    console.log('Event data:', JSON.stringify(e));
+    console.log('Resource:', JSON.stringify(resource));
     return { gcal_event_id: '', error: err.message };
   }
 }
@@ -2137,6 +2141,7 @@ function syncAllEventsToGcal() {
   }
 
   const settings = getSettings_();
+  const tz = settings.tz;
   const range = getEditableRange_(settings);
 
   const ss = SpreadsheetApp.getActive();
@@ -2160,7 +2165,7 @@ function syncAllEventsToGcal() {
     // 日付を文字列に変換
     let dateStr = '';
     if (dateVal instanceof Date) {
-      dateStr = formatISODate_(dateVal);
+      dateStr = Utilities.formatDate(dateVal, tz, 'yyyy-MM-dd');
     } else if (dateVal) {
       dateStr = String(dateVal).substring(0, 10);
     }
@@ -2170,19 +2175,42 @@ function syncAllEventsToGcal() {
       return;
     }
 
+    // 時刻を文字列に変換（HH:mm形式）
+    let startTime = '';
+    let endTime = '';
+
+    if (row[2]) {
+      if (row[2] instanceof Date) {
+        startTime = Utilities.formatDate(row[2], tz, 'HH:mm');
+      } else {
+        startTime = normalizeTimeString_(String(row[2]));
+      }
+    }
+
+    if (row[3]) {
+      if (row[3] instanceof Date) {
+        endTime = Utilities.formatDate(row[3], tz, 'HH:mm');
+      } else {
+        endTime = normalizeTimeString_(String(row[3]));
+      }
+    }
+
     const eventData = {
       event_id: eventId,
       date: dateStr,
-      start_time: row[2] || '',
-      end_time: row[3] || '',
+      start_time: startTime,
+      end_time: endTime,
       type: row[4] || '',
-      title: row[5] || '',
+      title: row[5] || '（件名なし）',
       location: row[6] || '',
       memo: row[7] || '',
       status: row[9] || 'CONFIRMED',
       gcal_event_id: gcalEventId || '',
-      is_all_day: !row[2] && !row[3],
+      is_all_day: !startTime && !endTime,
     };
+
+    // デバッグログ
+    console.log('Syncing event:', eventId, 'date:', dateStr, 'start:', startTime, 'end:', endTime, 'title:', row[5]);
 
     const result = syncOneEventToGcal_(eventData, calendarId);
 
@@ -2202,4 +2230,29 @@ function syncAllEventsToGcal() {
 
   console.log('Bulk sync completed - synced:', synced, 'errors:', errors);
   return { ok: true, synced: synced, errors: errors };
+}
+
+/**
+ * 時刻文字列をHH:mm形式に正規化
+ */
+function normalizeTimeString_(timeStr) {
+  if (!timeStr) return '';
+
+  // 既にHH:mm形式の場合
+  if (/^\d{2}:\d{2}$/.test(timeStr)) {
+    return timeStr;
+  }
+
+  // H:mm形式の場合（例: 9:00 → 09:00）
+  if (/^\d{1}:\d{2}$/.test(timeStr)) {
+    return '0' + timeStr;
+  }
+
+  // HH:mm:ss形式の場合
+  if (/^\d{2}:\d{2}:\d{2}$/.test(timeStr)) {
+    return timeStr.substring(0, 5);
+  }
+
+  // その他（数値のみなど）
+  return '';
 }
