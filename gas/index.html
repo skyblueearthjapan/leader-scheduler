@@ -10,26 +10,30 @@
 <body>
   <!-- ヘッダー -->
   <header class="topbar">
-    <div>
-      <div class="app-title">社長スケジュール</div>
-      <div class="subtle" id="userBadge">読み込み中…</div>
-    </div>
-    <div class="topbar__right">
-      <div class="infobar">
-        <div class="infoItem">
-          <span class="k">基準月</span><span class="v" id="baseMonth">—</span>
-        </div>
-        <div class="sep"></div>
-        <div class="infoItem">
-          <span class="k">編集</span><span class="v" id="editableRange">—</span>
-        </div>
-        <div class="sep"></div>
-        <div class="infoItem">
-          <span class="k">権限</span><span class="v" id="role">—</span>
-        </div>
+    <div class="topbar-inner">
+      <div class="brand">
+        <span class="lineworks-logo">LINE WORKS</span>
+        <span class="brand-title">社長スケジュール</span>
+        <span class="subtle" id="userBadge">読み込み中…</span>
       </div>
-      <button class="btn" id="reloadBtn" type="button">再読込</button>
-      <button class="btn btn--ghost" id="archiveBtn" type="button">過去一覧</button>
+      <div class="topbar__right">
+        <div class="infobar">
+          <div class="infoItem">
+            <span class="k">基準月</span><span class="v" id="baseMonth">—</span>
+          </div>
+          <div class="sep"></div>
+          <div class="infoItem">
+            <span class="k">編集</span><span class="v" id="editableRange">—</span>
+          </div>
+          <div class="sep"></div>
+          <div class="infoItem">
+            <span class="k">権限</span><span class="v" id="role">—</span>
+          </div>
+        </div>
+        <button class="btn" id="reloadBtn" type="button">再読込</button>
+        <button class="btn btn--ghost" id="archiveBtn" type="button">過去一覧</button>
+        <a href="<?= PORTAL_URL ?>" target="_top" class="portal-link">社内ポータルへ移動</a>
+      </div>
     </div>
   </header>
 

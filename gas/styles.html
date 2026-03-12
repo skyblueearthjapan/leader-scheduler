@@ -29,26 +29,63 @@
     color:var(--text);
   }
 
-  /* Top bar: compressed for maximum calendar space */
+  /* Top bar: navy gradient (shared design with other apps) */
   .topbar{
     position: sticky;
     top:0;
-    z-index:10;
+    z-index:100;
+    background: linear-gradient(90deg, #0B3A66, #124A7A);
+    color:#fff;
+    padding:10px 16px;
+    box-shadow: 0 4px 12px rgba(0,0,0,.15);
+  }
+  .topbar-inner{
+    max-width:1400px;
+    margin:0 auto;
     display:flex;
-    justify-content:space-between;
     align-items:center;
-    padding:8px 10px;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+  }
+  .brand{
+    display:flex;
+    align-items:center;
     gap:10px;
-    background:rgba(255,255,255,.9);
-    backdrop-filter: blur(8px);
-    border-bottom:1px solid var(--line);
+    font-weight:800;
+    font-size:16px;
   }
-  .topbar > div:first-child{
-    min-width:260px;
+  .lineworks-logo{
+    font-family:'Arial Black','Helvetica Neue',Arial,sans-serif;
+    font-weight:900;
+    font-size:20px;
+    letter-spacing:0.02em;
+    white-space:nowrap;
+    color:#fff;
   }
-  .app-title{font-weight:900; font-size:16px; line-height:1.1; letter-spacing:.2px;}
-  .subtle{color:var(--muted); font-size:11px; margin-top:2px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
-  .topbar__right{display:flex; gap:8px; align-items:center;}
+  .brand-title{font-weight:900; font-size:16px; white-space:nowrap;}
+  .subtle{color:rgba(255,255,255,.7); font-size:11px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .topbar__right{display:flex; gap:8px; align-items:center; flex-wrap:wrap;}
+
+  /* Portal link */
+  .portal-link{
+    display:inline-block;
+    font-size:13px;
+    padding:6px 12px;
+    border-radius:8px;
+    border:1px solid #1f9d55;
+    background:#1f9d55;
+    color:#fff;
+    text-decoration:none;
+    font-weight:500;
+    white-space:nowrap;
+  }
+  .portal-link:hover{
+    background:#177a43;
+    border-color:#177a43;
+    color:#fff;
+    text-decoration:none;
+  }
 
   /* Inline info bar */
   .infobar{
@@ -56,9 +93,9 @@
     align-items:center;
     gap:10px;
     padding:6px 10px;
-    border:1px solid var(--line);
+    border:1px solid rgba(255,255,255,.25);
     border-radius:14px;
-    background:#ffffff;
+    background:rgba(255,255,255,.1);
     white-space:nowrap;
   }
   .infoItem{
@@ -68,38 +105,38 @@
   }
   .infobar .k{
     font-size:11px;
-    color:var(--muted);
+    color:rgba(255,255,255,.7);
     font-weight:800;
     letter-spacing:.02em;
   }
   .infobar .v{
     font-size:12px;
-    color:var(--text);
+    color:#fff;
     font-weight:950;
   }
   .sep{
     width:1px;
     height:18px;
-    background:var(--line);
+    background:rgba(255,255,255,.3);
   }
 
   .btn{
-    border:1px solid var(--line);
-    background:#ffffff;
-    color:var(--text);
+    border:1px solid rgba(255,255,255,.3);
+    background:rgba(255,255,255,.15);
+    color:#fff;
     padding:7px 10px;
     border-radius:12px;
     cursor:pointer;
     font-weight:700;
     transition: background 0.15s, border-color 0.15s;
   }
-  .btn:hover{border-color:#cbd5e1; background:var(--soft);}
+  .btn:hover{border-color:rgba(255,255,255,.5); background:rgba(255,255,255,.25);}
   .btn:disabled{opacity:0.5; cursor:not-allowed;}
   .btn--primary{background:var(--accent); border-color:var(--accent); color:#fff;}
   .btn--primary:hover:not(:disabled){background:#2563eb; border-color:#2563eb;}
   .btn--danger{background:var(--danger); border-color:var(--danger); color:#fff;}
   .btn--danger:hover:not(:disabled){background:#dc2626; border-color:#dc2626;}
-  .btn--ghost{background:transparent;}
+  .btn--ghost{background:transparent; border-color:rgba(255,255,255,.3);}
 
   .iconBtn{
     width:36px; height:36px; border-radius:12px;
@@ -637,7 +674,6 @@
     .infobar{ display: none; }
   }
   @media (max-width:768px){
-    .topbar{ flex-direction: column; gap: 10px; align-items: flex-start; }
     .topbar__right{ width: 100%; }
     .formRow.two{ grid-template-columns: 1fr; }
   }

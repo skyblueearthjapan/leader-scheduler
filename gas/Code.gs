@@ -64,8 +64,9 @@ const GCAL_SETTINGS_KEYS = {
 // =============================================================================
 
 function doGet() {
-  return HtmlService.createTemplateFromFile('index')
-    .evaluate()
+  const t = HtmlService.createTemplateFromFile('index');
+  t.PORTAL_URL = 'https://script.google.com/a/macros/lineworks-local.info/s/AKfycbx2eyJMOYP9o--GPBuhY-pj071IIR6Kqb_0xALwwNzdLQZux0dIAlL3P9EoCucnzXA/exec';
+  return t.evaluate()
     .setTitle('社長スケジュール')
     .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.ALLOWALL)
     .addMetaTag('viewport', 'width=device-width, initial-scale=1');
