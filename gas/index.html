@@ -63,12 +63,14 @@
 
         <div class="formRow two">
           <div>
-            <label for="f_start">開始時刻</label>
-            <input id="f_start" type="time" />
+            <label>開始時刻</label>
+            <input id="f_start" type="hidden" />
+            <div class="clock-input" id="f_start_display" tabindex="0">--:--</div>
           </div>
           <div>
-            <label for="f_end">終了時刻</label>
-            <input id="f_end" type="time" />
+            <label>終了時刻</label>
+            <input id="f_end" type="hidden" />
+            <div class="clock-input" id="f_end_display" tabindex="0">--:--</div>
           </div>
         </div>
         <div class="formRow">

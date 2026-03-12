@@ -647,10 +647,14 @@ function applyEditability(dateISO) {
   const canDate = isDateEditable(dateISO);
   const canEdit = canRole && canDate;
 
-  const fields = ['f_date', 'f_start', 'f_end', 'f_type', 'f_title', 'f_location', 'f_memo', 'f_order', 'f_status'];
+  const fields = ['f_date', 'f_type', 'f_title', 'f_location', 'f_memo', 'f_order', 'f_status'];
   fields.forEach(id => {
     el(id).disabled = !canEdit;
   });
+
+  // 時計ピッカーの有効/無効
+  el('f_start_display').classList.toggle('disabled', !canEdit);
+  el('f_end_display').classList.toggle('disabled', !canEdit);
 
   el('saveBtn').disabled = !canEdit;
   el('deleteBtn').disabled = !canEdit;
@@ -678,6 +682,10 @@ function fillForm(e) {
   el('f_memo').value = e.memo || '';
   el('f_order').value = (e.display_order ?? '') === '' ? '' : e.display_order;
   el('f_status').value = e.status || 'CONFIRMED';
+
+  // 時計表示を更新
+  updateClockDisplay(el('f_start_display'), e.start_time || '');
+  updateClockDisplay(el('f_end_display'), e.end_time || '');
 }
 
 function getPayload() {
@@ -1077,6 +1085,223 @@ async function loadArchive() {
 }
 
 // =============================================================================
+// 時計型タイムピッカー
+// =============================================================================
+
+const ClockPicker = (function() {
+  let overlay = null;
+  let mode = 'hour';
+  let selectedHour = 10;
+  let selectedMinute = 0;
+  let onConfirm = null;
+  let onClear = null;
+
+  function init() {
+    if (overlay) return;
+
+    overlay = document.createElement('div');
+    overlay.className = 'clock-overlay hidden';
+    overlay.innerHTML = [
+      '<div class="clock-dialog">',
+      '  <div class="clock-header">',
+      '    <div class="clock-header-time">',
+      '      <span class="clock-h is-active" id="clockH">10</span>',
+      '      <span>:</span>',
+      '      <span class="clock-m" id="clockM">00</span>',
+      '    </div>',
+      '    <div class="clock-header-label" id="clockLabel">時を選択</div>',
+      '  </div>',
+      '  <div class="clock-body">',
+      '    <div class="clock-face" id="clockFace">',
+      '      <div class="clock-hand" id="clockHand"></div>',
+      '      <div class="clock-center-dot"></div>',
+      '    </div>',
+      '  </div>',
+      '  <div class="clock-footer">',
+      '    <button class="clock-footer-btn danger" id="clockClear">クリア</button>',
+      '    <div>',
+      '      <button class="clock-footer-btn" id="clockCancel">キャンセル</button>',
+      '      <button class="clock-footer-btn primary" id="clockOk">OK</button>',
+      '    </div>',
+      '  </div>',
+      '</div>'
+    ].join('');
+
+    document.body.appendChild(overlay);
+
+    document.getElementById('clockH').addEventListener('click', function() { switchMode('hour'); });
+    document.getElementById('clockM').addEventListener('click', function() { switchMode('minute'); });
+
+    document.getElementById('clockCancel').addEventListener('click', close);
+    document.getElementById('clockOk').addEventListener('click', function() {
+      if (onConfirm) {
+        var h = String(selectedHour).padStart(2, '0');
+        var m = String(selectedMinute).padStart(2, '0');
+        onConfirm(h + ':' + m);
+      }
+      close();
+    });
+    document.getElementById('clockClear').addEventListener('click', function() {
+      if (onClear) { onClear(); }
+      close();
+    });
+
+    overlay.addEventListener('click', function(e) {
+      if (e.target === overlay) { close(); }
+    });
+  }
+
+  function open(currentValue, confirmCb, clearCb) {
+    init();
+    onConfirm = confirmCb;
+    onClear = clearCb;
+
+    if (currentValue && currentValue.match(/^(\d{1,2}):(\d{2})$/)) {
+      selectedHour = parseInt(RegExp.$1);
+      selectedMinute = parseInt(RegExp.$2);
+    } else {
+      selectedHour = 10;
+      selectedMinute = 0;
+    }
+
+    mode = 'hour';
+    updateDisplay();
+    renderFace();
+    overlay.classList.remove('hidden');
+  }
+
+  function close() {
+    if (overlay) { overlay.classList.add('hidden'); }
+  }
+
+  function switchMode(m) {
+    mode = m;
+    updateDisplay();
+    renderFace();
+  }
+
+  function updateDisplay() {
+    var hEl = document.getElementById('clockH');
+    var mEl = document.getElementById('clockM');
+    var label = document.getElementById('clockLabel');
+
+    hEl.textContent = String(selectedHour).padStart(2, '0');
+    mEl.textContent = String(selectedMinute).padStart(2, '0');
+
+    hEl.classList.toggle('is-active', mode === 'hour');
+    mEl.classList.toggle('is-active', mode === 'minute');
+    label.textContent = mode === 'hour' ? '時を選択' : '分を選択';
+  }
+
+  function renderFace() {
+    var face = document.getElementById('clockFace');
+    var hand = document.getElementById('clockHand');
+
+    face.querySelectorAll('.clock-number').forEach(function(el) { el.remove(); });
+
+    if (mode === 'hour') {
+      // 外周: 0-11
+      for (var n = 0; n < 12; n++) {
+        var angle = (n * 30 - 90) * Math.PI / 180;
+        var r = 96;
+        var x = 120 + r * Math.cos(angle) - 20;
+        var y = 120 + r * Math.sin(angle) - 20;
+
+        var numEl = document.createElement('div');
+        numEl.className = 'clock-number' + (selectedHour === n ? ' is-selected' : '');
+        numEl.textContent = n;
+        numEl.style.left = x + 'px';
+        numEl.style.top = y + 'px';
+        numEl.dataset.val = n;
+        numEl.addEventListener('click', onNumberClick);
+        face.appendChild(numEl);
+      }
+
+      // 内周: 12-23
+      for (var n2 = 12; n2 < 24; n2++) {
+        var angle2 = ((n2 - 12) * 30 - 90) * Math.PI / 180;
+        var r2 = 62;
+        var x2 = 120 + r2 * Math.cos(angle2) - 20;
+        var y2 = 120 + r2 * Math.sin(angle2) - 20;
+
+        var numEl2 = document.createElement('div');
+        numEl2.className = 'clock-number' + (selectedHour === n2 ? ' is-selected' : '');
+        numEl2.textContent = n2;
+        numEl2.style.left = x2 + 'px';
+        numEl2.style.top = y2 + 'px';
+        numEl2.style.fontSize = '13px';
+        numEl2.dataset.val = n2;
+        numEl2.addEventListener('click', onNumberClick);
+        face.appendChild(numEl2);
+      }
+
+      var hAngle = (selectedHour % 12) * 30;
+      var hLen = selectedHour >= 12 ? 50 : 84;
+      hand.style.height = hLen + 'px';
+      hand.style.transform = 'translateX(-50%) rotate(' + hAngle + 'deg)';
+
+    } else {
+      // 分: 0,5,10,...55
+      for (var m = 0; m < 60; m += 5) {
+        var angle3 = (m * 6 - 90) * Math.PI / 180;
+        var r3 = 96;
+        var x3 = 120 + r3 * Math.cos(angle3) - 20;
+        var y3 = 120 + r3 * Math.sin(angle3) - 20;
+
+        var numEl3 = document.createElement('div');
+        numEl3.className = 'clock-number' + (selectedMinute === m ? ' is-selected' : '');
+        numEl3.textContent = String(m).padStart(2, '0');
+        numEl3.style.left = x3 + 'px';
+        numEl3.style.top = y3 + 'px';
+        numEl3.dataset.val = m;
+        numEl3.addEventListener('click', onNumberClick);
+        face.appendChild(numEl3);
+      }
+
+      var mAngle = selectedMinute * 6;
+      hand.style.height = '84px';
+      hand.style.transform = 'translateX(-50%) rotate(' + mAngle + 'deg)';
+    }
+  }
+
+  function onNumberClick(e) {
+    var val = parseInt(e.target.dataset.val);
+    if (mode === 'hour') {
+      selectedHour = val;
+      updateDisplay();
+      renderFace();
+      setTimeout(function() { switchMode('minute'); }, 200);
+    } else {
+      selectedMinute = val;
+      updateDisplay();
+      renderFace();
+    }
+  }
+
+  return { open: open };
+})();
+
+/** 時刻表示を更新 */
+function updateClockDisplay(displayEl, value) {
+  displayEl.textContent = value || '--:--';
+}
+
+/** 時計ピッカーを開く（開始時刻/終了時刻用） */
+function openClockFor(inputId) {
+  var input = el(inputId);
+  var display = el(inputId + '_display');
+  if (display.classList.contains('disabled')) return;
+
+  ClockPicker.open(input.value, function(timeStr) {
+    input.value = timeStr;
+    updateClockDisplay(display, timeStr);
+  }, function() {
+    input.value = '';
+    updateClockDisplay(display, '');
+  });
+}
+
+// =============================================================================
 // イベントハンドラ設定
 // =============================================================================
 
@@ -1091,6 +1316,10 @@ document.addEventListener('DOMContentLoaded', () => {
   el('modalBackdrop').addEventListener('click', () => openModal(false));
   el('saveBtn').addEventListener('click', onSave);
   el('deleteBtn').addEventListener('click', onDelete);
+
+  // 時計ピッカー
+  el('f_start_display').addEventListener('click', () => openClockFor('f_start'));
+  el('f_end_display').addEventListener('click', () => openClockFor('f_end'));
 
   // 日付変更時に編集可否を再評価
   el('f_date').addEventListener('change', () => {

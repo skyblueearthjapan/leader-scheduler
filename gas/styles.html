@@ -636,6 +636,185 @@
     to{opacity:0;transform:translateX(100%);}
   }
 
+  /* ========================================
+     時計型タイムピッカー
+     ======================================== */
+  .clock-input{
+    width:100%;
+    padding:10px 12px;
+    border-radius:12px;
+    border:1px solid var(--line);
+    background:#ffffff;
+    color:var(--text);
+    font-size:18px;
+    font-weight:700;
+    text-align:center;
+    cursor:pointer;
+    font-variant-numeric:tabular-nums;
+    transition:border-color 0.15s, box-shadow 0.15s;
+  }
+  .clock-input:hover{border-color:var(--accent3);}
+  .clock-input:focus{
+    outline:none;
+    border-color:var(--accent);
+    box-shadow:0 0 0 3px rgba(59,130,246,0.15);
+  }
+  .clock-input.disabled{
+    opacity:0.6;
+    cursor:not-allowed;
+    background:var(--soft);
+    pointer-events:none;
+  }
+
+  .clock-overlay{
+    position:fixed;
+    inset:0;
+    background:rgba(0,0,0,.4);
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    z-index:9999;
+  }
+  .clock-overlay.hidden{display:none;}
+
+  .clock-dialog{
+    background:#fff;
+    border-radius:16px;
+    box-shadow:0 12px 40px rgba(0,0,0,.25);
+    width:300px;
+    overflow:hidden;
+    user-select:none;
+    -webkit-user-select:none;
+  }
+
+  .clock-header{
+    background:#244a73;
+    color:#fff;
+    padding:16px 20px;
+    text-align:center;
+  }
+
+  .clock-header-time{
+    font-size:40px;
+    font-weight:800;
+    letter-spacing:0.02em;
+  }
+
+  .clock-header-time .clock-h,
+  .clock-header-time .clock-m{
+    cursor:pointer;
+    padding:2px 4px;
+    border-radius:6px;
+  }
+
+  .clock-header-time .clock-h.is-active,
+  .clock-header-time .clock-m.is-active{
+    background:rgba(255,255,255,.25);
+  }
+
+  .clock-header-label{
+    font-size:13px;
+    margin-top:4px;
+    opacity:0.7;
+  }
+
+  .clock-body{
+    padding:20px;
+    display:flex;
+    flex-direction:column;
+    align-items:center;
+  }
+
+  .clock-face{
+    position:relative;
+    width:240px;
+    height:240px;
+    border-radius:50%;
+    background:#f0f2f5;
+    margin-bottom:16px;
+  }
+
+  .clock-number{
+    position:absolute;
+    width:40px;
+    height:40px;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    border-radius:50%;
+    font-size:15px;
+    font-weight:700;
+    color:#0b1f3a;
+    cursor:pointer;
+    transition:all 0.12s ease;
+  }
+
+  .clock-number:hover{
+    background:rgba(36,74,115,.1);
+  }
+
+  .clock-number.is-selected{
+    background:#244a73;
+    color:#fff;
+  }
+
+  .clock-hand{
+    position:absolute;
+    bottom:50%;
+    left:50%;
+    width:2px;
+    background:#244a73;
+    transform-origin:bottom center;
+    border-radius:2px;
+    pointer-events:none;
+  }
+
+  .clock-center-dot{
+    position:absolute;
+    top:50%;
+    left:50%;
+    width:8px;
+    height:8px;
+    background:#244a73;
+    border-radius:50%;
+    transform:translate(-50%, -50%);
+    pointer-events:none;
+  }
+
+  .clock-footer{
+    display:flex;
+    justify-content:space-between;
+    padding:12px 20px 16px;
+  }
+
+  .clock-footer-btn{
+    border:none;
+    background:transparent;
+    font-size:14px;
+    font-weight:700;
+    cursor:pointer;
+    padding:8px 16px;
+    border-radius:8px;
+    transition:background 0.15s;
+  }
+
+  .clock-footer-btn:hover{
+    background:#f0f2f5;
+  }
+
+  .clock-footer-btn.primary{
+    background:#244a73;
+    color:#fff;
+  }
+
+  .clock-footer-btn.primary:hover{
+    background:#1d3d5f;
+  }
+
+  .clock-footer-btn.danger{
+    color:#d9534f;
+  }
+
   /* Loading */
   .loading{
     display:none;
