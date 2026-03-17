@@ -171,7 +171,7 @@ function createEventText_(e) {
   // クリック → 編集
   block.addEventListener('click', (ev) => {
     ev.stopPropagation();
-    openEditModal(e.event_id);
+    openEditModal(e.event_id || e.gcal_event_id);
   });
 
   return block;
@@ -252,14 +252,18 @@ function generateTempId() {
 
 function addEventToUI(event) {
   STATE.events.push(event);
-  STATE.eventById.set(event.event_id, event);
+  STATE.eventById.set(event.event_id || event.gcal_event_id, event);
   // 並び替え
   STATE.events.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    if (a.pin !== b.pin) return a.pin ? -1 : 1;
+    if (a.is_all_day !== b.is_all_day) return a.is_all_day ? -1 : 1;
+    if ((a.display_order || 0) !== (b.display_order || 0)) {
+      return (a.display_order || 0) - (b.display_order || 0);
+    }
     const at = a.start_time || '99:99';
     const bt = b.start_time || '99:99';
-    if (at !== bt) return at < bt ? -1 : 1;
-    return (a.display_order || 0) - (b.display_order || 0);
+    return at < bt ? -1 : 1;
   });
   renderBoards();
 }
@@ -271,10 +275,14 @@ function updateEventInUI(eventId, updates) {
   // 並び替え
   STATE.events.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    if (a.pin !== b.pin) return a.pin ? -1 : 1;
+    if (a.is_all_day !== b.is_all_day) return a.is_all_day ? -1 : 1;
+    if ((a.display_order || 0) !== (b.display_order || 0)) {
+      return (a.display_order || 0) - (b.display_order || 0);
+    }
     const at = a.start_time || '99:99';
     const bt = b.start_time || '99:99';
-    if (at !== bt) return at < bt ? -1 : 1;
-    return (a.display_order || 0) - (b.display_order || 0);
+    return at < bt ? -1 : 1;
   });
   renderBoards();
 }
@@ -342,19 +350,28 @@ async function boot() {
     STATE.masters = res.masters;
     STATE.range = res.range;
     STATE.events = res.events || [];
-    STATE.eventById = new Map(STATE.events.map(e => [e.event_id, e]));
+    STATE.eventById = new Map(STATE.events.map(e => [e.event_id || e.gcal_event_id, e]));
     STATE.notes = res.notes || {};
     STATE.daySettings = res.daySettings || {};
 
-    // デバッグ: 日付設定の確認
-    console.log('daySettings from server:', JSON.stringify(res.daySettings));
-    console.log('STATE.daySettings:', JSON.stringify(STATE.daySettings));
-
     renderHeader();
+
+    // Show sync status
+    if (res.syncStatus) {
+      const syncInfo = el('syncStatus_info');
+      if (syncInfo) {
+        if (res.syncStatus.lastSyncAt) {
+          const lastSync = new Date(res.syncStatus.lastSyncAt);
+          syncInfo.textContent = '最終同期: ' + lastSync.toLocaleString('ja-JP');
+        } else {
+          syncInfo.textContent = '未同期';
+        }
+      }
+    }
+
     renderBoards();
     setupModalMasters();
 
-    console.log('Bootstrap completed:', STATE);
   } catch (e) {
     console.error('Boot error:', e);
     alert('読み込みエラー: ' + e.message);
@@ -431,9 +448,6 @@ function renderMonthGrid(container, monthStart) {
 
       // 日付設定を取得
       const daySetting = STATE.daySettings[iso];
-      if (daySetting) {
-        console.log('Day setting found:', iso, daySetting);
-      }
 
       // 週末クラス（日付設定で上書きされる可能性あり）
       if (dayOfWeek === 0) {
@@ -647,7 +661,8 @@ function applyEditability(dateISO) {
   const canDate = isDateEditable(dateISO);
   const canEdit = canRole && canDate;
 
-  const fields = ['f_date', 'f_type', 'f_title', 'f_location', 'f_memo', 'f_order', 'f_status'];
+  const fields = ['f_date', 'f_type', 'f_title', 'f_location', 'f_memo', 'f_order'];
+  el('f_status').disabled = true; // GCal managed field - always read-only
   fields.forEach(id => {
     el(id).disabled = !canEdit;
   });
@@ -677,15 +692,30 @@ function fillForm(e) {
   el('f_start').value = e.start_time || '';
   el('f_end').value = e.end_time || '';
   el('f_type').value = e.type || (STATE.masters.types?.[0]?.code || '');
-  el('f_title').value = e.title || '';
-  el('f_location').value = e.location || '';
-  el('f_memo').value = e.memo || '';
+  // For board override: show board_title if exists, else gcal_title
+  el('f_title').value = e.board_title || e.gcal_title || e.title || '';
+  el('f_location').value = e.board_location || e.gcal_location || e.location || '';
+  el('f_memo').value = e.board_memo || e.memo || '';
   el('f_order').value = (e.display_order ?? '') === '' ? '' : e.display_order;
-  el('f_status').value = e.status || 'CONFIRMED';
+  el('f_status').value = e.gcal_status || e.status || 'confirmed';
 
   // 時計表示を更新
   updateClockDisplay(el('f_start_display'), e.start_time || '');
   updateClockDisplay(el('f_end_display'), e.end_time || '');
+
+  // Show GCal source info if available
+  const gcalInfo = el('gcalSourceInfo');
+  if (gcalInfo) {
+    if (e.gcal_title) {
+      gcalInfo.style.display = 'block';
+      gcalInfo.innerHTML = '<div class="gcal-source-label">Googleカレンダーの元情報:</div>'
+        + '<div class="gcal-source-text">' + esc(e.gcal_title)
+        + (e.gcal_location ? ' @' + esc(e.gcal_location) : '')
+        + '</div>';
+    } else {
+      gcalInfo.style.display = 'none';
+    }
+  }
 }
 
 function getPayload() {
@@ -704,13 +734,17 @@ function getPayload() {
 }
 
 function openCreateModal(dateISO) {
+  // GCal sync mode: create from UI is disabled
+  // Instead, open modal in a special "view" mode for day settings only
   MODAL_MODE = 'create';
   CURRENT_EVENT_ID = null;
   DAY_SETTING_CHANGED = false;
 
-  el('modalTitle').textContent = '予定追加';
+  el('modalTitle').textContent = '日付設定';
   el('deleteBtn').style.display = 'none';
+  el('saveBtn').style.display = 'none';
 
+  // Hide schedule input fields, show only day settings
   fillForm({
     date: dateISO,
     start_time: '',
@@ -720,11 +754,16 @@ function openCreateModal(dateISO) {
     location: '',
     memo: '',
     display_order: '',
-    status: 'CONFIRMED'
+    status: 'confirmed'
   });
 
   applyEditability(dateISO);
   updateDaySettingButtons(dateISO);
+
+  // Show hint that events should be created in Google Calendar
+  el('editHint').textContent = '予定の追加はGoogleカレンダーで行い、同期ボタンで取り込んでください。';
+  el('editHint').className = 'editHint warning';
+
   openModal(true);
 }
 
@@ -736,7 +775,8 @@ function openEditModal(id) {
   const e = STATE.eventById.get(id);
   if (!e) return;
 
-  el('modalTitle').textContent = '予定編集';
+  el('modalTitle').textContent = 'BOARD編集';
+  el('saveBtn').style.display = '';
   el('deleteBtn').style.display = 'inline-block';
 
   fillForm(e);
@@ -750,22 +790,7 @@ function openEditModal(id) {
 // =============================================================================
 
 async function refresh() {
-  showLoading(true);
-  try {
-    const res = await gas('listEvents', STATE.range.fromISO, STATE.range.toISO);
-    if (!res.ok) {
-      alert('再取得失敗: ' + (res.error || ''));
-      return;
-    }
-    STATE.events = res.events || [];
-    STATE.eventById = new Map(STATE.events.map(e => [e.event_id, e]));
-    renderBoards();
-  } catch (e) {
-    console.error('Refresh error:', e);
-    alert('再取得エラー: ' + e.message);
-  } finally {
-    showLoading(false);
-  }
+  await boot();
 }
 
 function onSave() {
@@ -794,54 +819,14 @@ function onSave() {
   }
 
   if (MODAL_MODE === 'create') {
-    // ========== 新規作成（ノンブロッキング） ==========
-    const tempId = generateTempId();
-
-    // 楽観的UI更新: 仮IDで即座に画面に反映
-    const optimisticEvent = {
-      event_id: tempId,
-      date: payload.date,
-      start_time: payload.start_time,
-      end_time: payload.end_time,
-      type: payload.type,
-      title: payload.title,
-      location: payload.location,
-      memo: payload.memo,
-      display_order: payload.display_order,
-      status: payload.status,
-      _pending: true  // 保存中フラグ
-    };
-    addEventToUI(optimisticEvent);
-
-    // モーダルを即座に閉じる
+    // Manual creation is not supported in GCal sync mode
+    // Events should be created in Google Calendar
+    showToast('予定はGoogleカレンダーで作成してください。同期ボタンで取り込めます。', 'warning', 5000);
     openModal(false);
-    showToast('予定を追加しました', 'success', 2000);
-
-    // バックグラウンドで保存
-    enqueueSave({
-      execute: async () => {
-        const res = await gas('createEvent', payload);
-        if (res && res.ok) {
-          // 仮IDを正式IDに置換
-          replaceEventId(tempId, res.event_id);
-          const event = STATE.eventById.get(res.event_id);
-          if (event) delete event._pending;
-          console.log('Background save success:', res.event_id);
-        } else {
-          // 保存失敗: UIから削除してエラー表示
-          removeEventFromUI(tempId);
-          const errorMsg = getErrorMessage(res?.error);
-          showToast('保存に失敗しました: ' + errorMsg, 'error', 6000);
-        }
-      },
-      onError: (e) => {
-        removeEventFromUI(tempId);
-        showToast('保存エラー: ' + e.message, 'error', 6000);
-      }
-    });
+    return;
 
   } else {
-    // ========== 更新（ノンブロッキング） ==========
+    // ========== 更新（saveBoardOverride） ==========
     const eventId = CURRENT_EVENT_ID;
     const originalEvent = { ...STATE.eventById.get(eventId) };
 
@@ -854,8 +839,10 @@ function onSave() {
       title: payload.title,
       location: payload.location,
       memo: payload.memo,
+      board_title: payload.title,
+      board_location: payload.location,
+      board_memo: payload.memo,
       display_order: payload.display_order,
-      status: payload.status,
       _pending: true
     });
 
@@ -866,7 +853,15 @@ function onSave() {
     // バックグラウンドで保存
     enqueueSave({
       execute: async () => {
-        const res = await gas('updateEvent', eventId, payload);
+        const res = await gas('saveBoardOverride', {
+          gcal_event_id: eventId,
+          board_title: payload.title,
+          board_location: payload.location,
+          board_memo: payload.memo,
+          type: payload.type,
+          display_order: payload.display_order !== '' ? payload.display_order : 0,
+          pin: false
+        });
         if (res && res.ok) {
           const event = STATE.eventById.get(eventId);
           if (event) delete event._pending;
@@ -900,38 +895,8 @@ function getErrorMessage(errorCode) {
 }
 
 function onDelete() {
-  if (!CURRENT_EVENT_ID) return;
-
-  if (!confirm('この予定を削除しますか？')) return;
-
-  const eventId = CURRENT_EVENT_ID;
-  const originalEvent = { ...STATE.eventById.get(eventId) };
-
-  // 楽観的UI更新: 即座に画面から削除
-  removeEventFromUI(eventId);
-
-  // モーダルを即座に閉じる
+  showToast('予定の削除はGoogleカレンダーから行ってください。次回同期時に反映されます。', 'warning', 5000);
   openModal(false);
-  showToast('予定を削除しました', 'success', 2000);
-
-  // バックグラウンドで削除
-  enqueueSave({
-    execute: async () => {
-      const res = await gas('deleteEvent', eventId);
-      if (res && res.ok) {
-        console.log('Background delete success:', eventId);
-      } else {
-        // 削除失敗: 元に戻してエラー表示
-        addEventToUI(originalEvent);
-        const errorMsg = getErrorMessage(res?.error);
-        showToast('削除に失敗しました: ' + errorMsg, 'error', 6000);
-      }
-    },
-    onError: (e) => {
-      addEventToUI(originalEvent);
-      showToast('削除エラー: ' + e.message, 'error', 6000);
-    }
-  });
 }
 
 // =============================================================================
@@ -1041,47 +1006,7 @@ async function loadArchive() {
     alert('月を選択してください');
     return;
   }
-
-  showLoading(true);
-  try {
-    const res = await gas('listArchive', m);
-
-    if (!res.ok) {
-      alert('取得失敗: ' + (res.error || ''));
-      return;
-    }
-
-    const tbody = el('archiveTable').querySelector('tbody');
-    tbody.innerHTML = '';
-
-    if (res.events.length === 0) {
-      const tr = document.createElement('tr');
-      tr.innerHTML = '<td colspan="6" style="text-align:center;color:#6b7280;">予定がありません</td>';
-      tbody.appendChild(tr);
-      return;
-    }
-
-    for (const e of res.events) {
-      const tr = document.createElement('tr');
-      const timeRange = e.start_time
-        ? (e.end_time ? `${e.start_time}–${e.end_time}` : e.start_time)
-        : '';
-      tr.innerHTML = `
-        <td>${esc(e.date)}</td>
-        <td>${esc(timeRange)}</td>
-        <td>${esc(typeLabel(e.type))}</td>
-        <td>${esc(e.title || '')}</td>
-        <td>${esc(e.location || '')}</td>
-        <td>${esc(statusLabel(e.status))}</td>
-      `;
-      tbody.appendChild(tr);
-    }
-  } catch (e) {
-    console.error('Archive error:', e);
-    alert('取得エラー: ' + e.message);
-  } finally {
-    showLoading(false);
-  }
+  showToast('過去一覧機能は現在GCal同期モードでは利用できません', 'warning', 4000);
 }
 
 // =============================================================================
@@ -1309,6 +1234,27 @@ document.addEventListener('DOMContentLoaded', () => {
   // ヘッダー
   el('reloadBtn').addEventListener('click', boot);
   el('archiveBtn').addEventListener('click', () => openDrawer(true));
+
+  // GCal同期ボタン
+  const syncBtn = el('syncBtn');
+  if (syncBtn) {
+    syncBtn.addEventListener('click', async () => {
+      showLoading(true);
+      try {
+        const res = await gas('manualSyncNow');
+        if (res && res.ok) {
+          showToast('同期完了（新規:' + (res.created || 0) + ' 更新:' + (res.updated || 0) + '）', 'success');
+          await boot();
+        } else {
+          showToast('同期失敗: ' + (res?.error || '不明'), 'error');
+        }
+      } catch (e) {
+        showToast('同期エラー: ' + e.message, 'error');
+      } finally {
+        showLoading(false);
+      }
+    });
+  }
 
   // モーダル
   el('modalClose').addEventListener('click', () => openModal(false));

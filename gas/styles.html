@@ -856,4 +856,43 @@
     .topbar__right{ width: 100%; }
     .formRow.two{ grid-template-columns: 1fr; }
   }
+
+  /* GCal Sync button */
+  .btn--sync{
+    background: #4285f4;
+    border-color: #4285f4;
+    color: #fff;
+    font-weight: 700;
+  }
+  .btn--sync:hover:not(:disabled){
+    background: #3367d6;
+    border-color: #3367d6;
+  }
+
+  /* Sync status indicator */
+  .sync-status{
+    font-size: 11px;
+    color: rgba(255,255,255,.7);
+    white-space: nowrap;
+  }
+
+  /* GCal source info in modal */
+  .gcal-source-info{
+    margin-bottom: 14px;
+    padding: 10px 12px;
+    background: #f0f7ff;
+    border: 1px solid #bfdbfe;
+    border-radius: 10px;
+    font-size: 12px;
+  }
+  .gcal-source-label{
+    font-weight: 700;
+    color: #1e40af;
+    margin-bottom: 4px;
+    font-size: 11px;
+  }
+  .gcal-source-text{
+    color: #334155;
+    line-height: 1.5;
+  }
 </style>

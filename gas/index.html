@@ -30,7 +30,9 @@
             <span class="k">権限</span><span class="v" id="role">—</span>
           </div>
         </div>
+        <span class="sync-status" id="syncStatus_info"></span>
         <button class="btn" id="reloadBtn" type="button">再読込</button>
+        <button class="btn btn--sync" id="syncBtn" type="button">GCal同期</button>
         <button class="btn btn--ghost" id="archiveBtn" type="button">過去一覧</button>
         <a href="<?= PORTAL_URL ?>" target="_top" class="portal-link">社内ポータルへ移動</a>
       </div>
@@ -56,6 +58,8 @@
       </div>
 
       <div class="modal__body">
+        <!-- GCal元情報表示 -->
+        <div class="gcal-source-info" id="gcalSourceInfo" style="display:none;"></div>
         <div class="formRow">
           <label for="f_date">日付 <span class="required">*</span></label>
           <input id="f_date" type="date" required />
@@ -115,7 +119,7 @@
       </div>
 
       <div class="modal__footer">
-        <button class="btn btn--danger" id="deleteBtn" type="button">削除</button>
+        <button class="btn btn--danger" id="deleteBtn" type="button" title="予定の削除はGoogleカレンダーから行ってください">削除</button>
         <div class="spacer"></div>
         <div class="save-status" id="saveStatus">
           <span class="status-icon"></span>

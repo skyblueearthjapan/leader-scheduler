@@ -60,6 +60,34 @@ const GCAL_SETTINGS_KEYS = {
 };
 
 // =============================================================================
+// イベント種別 自動分類
+// =============================================================================
+
+/**
+ * タイトル・説明文からイベント種別を自動判定
+ * @param {string} title - イベントタイトル
+ * @param {string} description - イベント説明
+ * @return {string} 種別コード
+ */
+function classifyEventType_(title, description) {
+  const t = String(title || '');
+  const d = String(description || '');
+  const text = t + ' ' + d;
+
+  // 優先順位順にマッチング
+  if (/会議|MTG|ミーティング|打合せ|打ち合わせ|定例/i.test(text)) return 'MEETING';
+  if (/来客|来社|ご来社/i.test(text)) return 'VISIT';
+  if (/面会|面談|1on1|1:1/i.test(text)) return 'MEET';
+  if (/VIP|役員|取締役/i.test(text)) return 'VIP';
+  if (/出張/i.test(text) || /^★/i.test(t)) return 'TRAVEL';
+  if (/外出|移動|訪問/i.test(text)) return 'OUT';
+  if (/会食|懇親|食事|ディナー|ランチ/i.test(text)) return 'DINNER';
+  if (/休|有給|休暇/i.test(text)) return 'HOLIDAY';
+
+  return 'OTHER';
+}
+
+// =============================================================================
 // Webアプリ エントリーポイント
 // =============================================================================
 
@@ -109,7 +137,17 @@ function getBootstrap() {
       range,
       events,
       notes,
-      daySettings
+      daySettings,
+      syncStatus: (() => {
+        try {
+          const ss = getGcalSyncSettings_();
+          return {
+            enabled: ss[GCAL_SETTINGS_KEYS.SYNC_ENABLED] === 'TRUE' || ss[GCAL_SETTINGS_KEYS.SYNC_ENABLED] === true,
+            lastSyncAt: ss[GCAL_SETTINGS_KEYS.LAST_SYNC_AT] || null,
+            calendarId: ss[GCAL_SETTINGS_KEYS.CALENDAR_ID] || null,
+          };
+        } catch(e) { return { enabled: false, lastSyncAt: null, calendarId: null }; }
+      })()
     };
   } catch (e) {
     console.error('getBootstrap error:', e);
@@ -378,6 +416,7 @@ function listBoardEvents_(fromISO, toISO) {
 
     out.push({
       gcal_event_id: String(gcalEventId),
+      event_id: String(gcalEventId),
       date: formatISODate_(dd),
       start_time: asTimeStr_(r[2]),   // C: start_time
       end_time: asTimeStr_(r[3]),     // D: end_time
@@ -406,10 +445,12 @@ function listBoardEvents_(fromISO, toISO) {
     });
   }
 
-  // 並び順: date → pin（優先）→ display_order → start_time
+  // 並び順: date → pin（優先）→ all-day優先 → display_order → start_time
   out.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
     if (a.pin !== b.pin) return a.pin ? -1 : 1;
+    // All-day events sort before timed events
+    if (a.is_all_day !== b.is_all_day) return a.is_all_day ? -1 : 1;
     if ((a.display_order || 0) !== (b.display_order || 0)) {
       return (a.display_order || 0) - (b.display_order || 0);
     }
@@ -474,15 +515,10 @@ function syncFromGcalToSheet() {
 
     try {
       do {
-        const options = {
-          singleEvents: true,
-          showDeleted: true,
-          timeMin: timeMin,
-          timeMax: timeMax,
-          maxResults: 2500,
-        };
+        const options = syncToken
+          ? { syncToken: syncToken, showDeleted: true, maxResults: 2500 }
+          : { singleEvents: true, showDeleted: true, timeMin: timeMin, timeMax: timeMax, maxResults: 2500 };
         if (pageToken) options.pageToken = pageToken;
-        if (syncToken) options.syncToken = syncToken;
 
         const res = Calendar.Events.list(calendarId, options);
         (res.items || []).forEach(it => items.push(it));
@@ -583,7 +619,7 @@ function syncFromGcalToSheet() {
           '',                       // L: board_title（空）
           '',                       // M: board_location（空）
           '',                       // N: board_memo（空）
-          '',                       // O: type（空）
+          patch.suggested_type || '',  // O: type（自動分類）
           '',                       // P: display_order（空）
           false,                    // Q: pin
           false,                    // R: hidden
@@ -645,6 +681,9 @@ function gcalEventToPatch_(ev, tz, importAt) {
     }
   }
 
+  // 自動分類
+  patch.suggested_type = classifyEventType_(patch.gcal_title, patch.gcal_description);
+
   return patch;
 }
 
@@ -652,30 +691,22 @@ function gcalEventToPatch_(ev, tz, importAt) {
  * gcal_列のみ更新（board_列は触らない）
  */
 function writeGcalColumnsOnly_(sh, rowNum, patch) {
-  // A(1): gcal_event_id
-  sh.getRange(rowNum, 1).setValue(patch.gcal_event_id);
-  // B(2): date
-  if (patch.date) {
-    sh.getRange(rowNum, 2).setValue(patch.date);
-  }
-  // C(3): start_time - テキスト形式で保存（時刻の自動変換防止）
-  sh.getRange(rowNum, 3).setNumberFormat('@').setValue(patch.start_time || '');
-  // D(4): end_time - テキスト形式で保存
-  sh.getRange(rowNum, 4).setNumberFormat('@').setValue(patch.end_time || '');
-  // E(5): is_all_day
-  sh.getRange(rowNum, 5).setValue(patch.is_all_day || false);
-  // F(6): gcal_title
-  sh.getRange(rowNum, 6).setValue(patch.gcal_title || '');
-  // G(7): gcal_location
-  sh.getRange(rowNum, 7).setValue(patch.gcal_location || '');
-  // H(8): gcal_description
-  sh.getRange(rowNum, 8).setValue(patch.gcal_description || '');
-  // I(9): gcal_updated
-  sh.getRange(rowNum, 9).setValue(patch.gcal_updated || '');
-  // J(10): gcal_status
-  sh.getRange(rowNum, 10).setValue(patch.gcal_status || '');
-  // K(11): gcal_is_deleted
-  sh.getRange(rowNum, 11).setValue(patch.gcal_is_deleted || false);
+  // C,D列をテキスト形式に設定（時刻の自動変換防止）
+  sh.getRange(rowNum, 3, 1, 2).setNumberFormat('@');
+  // A〜K列を一括書き込み
+  sh.getRange(rowNum, 1, 1, 11).setValues([[
+    patch.gcal_event_id,
+    patch.date || '',
+    patch.start_time || '',
+    patch.end_time || '',
+    patch.is_all_day || false,
+    patch.gcal_title || '',
+    patch.gcal_location || '',
+    patch.gcal_description || '',
+    patch.gcal_updated || '',
+    patch.gcal_status || '',
+    patch.gcal_is_deleted || false
+  ]]);
   // U(21): gcal_imported_at
   sh.getRange(rowNum, 21).setValue(patch.gcal_imported_at || '');
 }
